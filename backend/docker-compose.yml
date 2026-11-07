@@ -1,0 +1,28 @@
+# docker compose up --build
+# API on http://localhost:8080 (seeds itself on first start).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nearby
+      POSTGRES_PASSWORD: nearby
+      POSTGRES_DB: nearby
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nearby"]
+      interval: 2s
+      retries: 30
+
+  api:
+    build: .
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://nearby:nearby@db:5432/nearby?sslmode=disable
+      SEED_IF_EMPTY: "true"
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+    ports: ["8080:8080"]
+
+volumes:
+  pgdata:

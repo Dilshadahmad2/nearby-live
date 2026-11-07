@@ -21,6 +21,12 @@ Optional live road traffic (TomTom Traffic Flow, free tier):
 flutter run --dart-define=TOMTOM_KEY=your_tomtom_key
 ```
 
+Use the backend (`../backend`) for timetable-based trains near you:
+
+```bash
+flutter run --dart-define=BACKEND_URL=http://10.0.2.2:8080   # Android emulator → host
+```
+
 Build a debug APK:
 
 ```bash
@@ -58,7 +64,7 @@ The app is keyless except for the optional TomTom key.
 | Flights | OpenSky `/api/states/all` (anonymous) | none | bbox from range, 20 s polls, dead reckoning, exponential back-off on HTTP 429 |
 | Flight route text | adsbdb.com callsign lookup | none | cached per callsign |
 | Rail geometry | Overpass API (`railway=rail`) | none | ways stitched into continuous routes, cached per area |
-| Trains | `TrainDataSource` → `MockTrainSource` | — | there is no free official Indian live-train API; the mock runs named trains along the **real** rail lines near you |
+| Trains | `TrainDataSource` → `BackendTrainSource` (with `BACKEND_URL`) or `MockTrainSource` | — | the backend estimates positions from the Indian Railways timetable and station coordinates (8,990 stations); the app snaps them onto the real OSM rail line. Without a backend, the mock runs named trains along real rail lines |
 | Road traffic | TomTom Flow Segment Data | `--dart-define=TOMTOM_KEY` | without a key: `MockTrafficSource` puts simulated jams on real major roads from Overpass |
 | Events | — | — | Phase 2 (Ticketmaster / PredictHQ); shown in the demo only |
 
@@ -88,7 +94,7 @@ lib/
      ├─ weather/                 Open-Meteo API + WMO code → label / overlay variant
      ├─ flights/                 OpenSky API, adsbdb lookup, FlightTrack (dead reckoning + smooth snap), Backoff
      ├─ traffic/                 TomTom source, mock source, congestion model
-     ├─ trains/                  TrainDataSource, RailGeometryRepository, MockTrainSource
+     ├─ trains/                  TrainDataSource, RailGeometryRepository, BackendTrainSource, MockTrainSource
      ├─ demo/                    DemoCity (asset), DemoScenario (scripted distances), DemoDirector
      ├─ nearby/
      │   ├─ application/         NearbyController: location + range + sources → NearbyState
@@ -126,6 +132,6 @@ Switch styles in **Settings**.
 
 ## Known limits
 
-* Train positions are simulated on real track; plug a real provider into `TrainDataSource`.
+* Train positions are timetable estimates (backend) or simulated (mock); live delays need a provider (see `../backend/README.md`).
 * Anonymous OpenSky access is rate-limited (the app backs off on 429); a free account raises the limits.
 * Events are not live yet.

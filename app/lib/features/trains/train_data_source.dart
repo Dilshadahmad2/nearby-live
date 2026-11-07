@@ -2,9 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config.dart';
 import '../../core/geo/geo_point.dart';
 import '../../core/geo/geo_utils.dart';
 import '../../core/osm/overpass_api.dart';
+import 'backend_train_source.dart';
 import 'train.dart';
 
 /// Source of live (or estimated) train positions. India has no free official
@@ -98,4 +100,10 @@ List<Train> mockTrainsOnRoutes(List<List<GeoPoint>> routes, GeoPoint origin, Dat
 
 final railGeometryProvider = Provider<RailGeometryRepository>((ref) => RailGeometryRepository(ref.watch(overpassApiProvider)));
 
-final trainDataSourceProvider = Provider<TrainDataSource>((ref) => MockTrainSource(ref.watch(railGeometryProvider)));
+/// Backend timetable estimates when `BACKEND_URL` is set, otherwise the mock.
+final trainDataSourceProvider = Provider<TrainDataSource>((ref) {
+  final rails = ref.watch(railGeometryProvider);
+  const url = AppConfig.backendUrl;
+  if (url.isEmpty) return MockTrainSource(rails);
+  return BackendTrainSource(ref.watch(dioProvider), url.endsWith('/') ? url.substring(0, url.length - 1) : url, rails);
+});

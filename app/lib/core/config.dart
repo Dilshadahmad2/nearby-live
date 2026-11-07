@@ -8,6 +8,10 @@ abstract final class AppConfig {
   /// TomTom Traffic Flow key. When empty, traffic uses the mock source.
   static const tomTomKey = String.fromEnvironment('TOMTOM_KEY');
 
+  /// Nearby Live backend (see `../backend`), e.g. `http://10.0.2.2:8080` from
+  /// the Android emulator. When empty, trains use the on-device mock.
+  static const backendUrl = String.fromEnvironment('BACKEND_URL');
+
   /// Demo location: Old Delhi, near Red Fort (the prototype's scenario).
   static const demoUser = GeoPoint(28.6540, 77.2410);
 
