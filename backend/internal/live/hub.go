@@ -41,7 +41,7 @@ type Object struct {
 	Extra      map[string]any `json:"extra,omitempty"`
 
 	// DeadReckon: extrapolate along heading at query time (flights).
-	DeadReckon bool `json:"-"`
+	DeadReckon bool `json:"dead_reckon,omitempty"`
 }
 
 // Result is an object returned by a query, positioned at the query time.
@@ -82,6 +82,10 @@ type Hub struct {
 	mu     sync.RWMutex
 	layers map[Kind]*layer
 	now    func() time.Time
+
+	// OnChange, when set, is called after every local Replace/Upsert (not
+	// for ApplyRemote) — used to replicate layers to other instances.
+	OnChange func(Change)
 	// MaxDeadReckon caps extrapolation of stale fixes.
 	MaxDeadReckon time.Duration
 }
@@ -104,7 +108,33 @@ func (h *Hub) layer(k Kind) *layer {
 }
 
 // Replace swaps a kind's whole snapshot (sources that see everything).
+// Change is one layer update, as replicated between instances.
+type Change struct {
+	Kind    Kind          `json:"kind"`
+	Source  string        `json:"source"`
+	Op      string        `json:"op"` // replace | upsert
+	Objects []Object      `json:"objects"`
+	Expire  time.Duration `json:"expire_ns,omitempty"`
+}
+
+// ApplyRemote applies a change received from another instance without
+// calling OnChange.
+func (h *Hub) ApplyRemote(c Change) {
+	if c.Op == "upsert" {
+		h.upsert(c.Kind, c.Source, c.Objects, c.Expire)
+	} else {
+		h.replace(c.Kind, c.Source, c.Objects)
+	}
+}
+
 func (h *Hub) Replace(k Kind, source string, objs []Object) {
+	h.replace(k, source, objs)
+	if h.OnChange != nil {
+		h.OnChange(Change{Kind: k, Source: source, Op: "replace", Objects: objs})
+	}
+}
+
+func (h *Hub) replace(k Kind, source string, objs []Object) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	l := h.layer(k)
@@ -122,6 +152,13 @@ func (h *Hub) Replace(k Kind, source string, objs []Object) {
 // Upsert merges objects into a kind (sources that fetch regions) and drops
 // objects older than expire.
 func (h *Hub) Upsert(k Kind, source string, objs []Object, expire time.Duration) {
+	h.upsert(k, source, objs, expire)
+	if h.OnChange != nil {
+		h.OnChange(Change{Kind: k, Source: source, Op: "upsert", Objects: objs, Expire: expire})
+	}
+}
+
+func (h *Hub) upsert(k Kind, source string, objs []Object, expire time.Duration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	l := h.layer(k)
@@ -335,4 +372,19 @@ func wantsKind(kinds []Kind, k Kind) bool {
 		}
 	}
 	return false
+}
+
+// All returns every object of a kind (unpositioned, for replication).
+func (h *Hub) All(k Kind) []Object {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	l := h.layers[k]
+	if l == nil {
+		return nil
+	}
+	out := make([]Object, 0, len(l.objs))
+	for _, o := range l.objs {
+		out = append(out, o)
+	}
+	return out
 }

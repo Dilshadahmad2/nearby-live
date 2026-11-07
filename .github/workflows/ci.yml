@@ -25,6 +25,9 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U nearby" --health-interval 2s --health-retries 30
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -35,6 +38,8 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
       - run: go test -race ./...
+        env:
+          REDIS_TEST_URL: redis://localhost:6379/15
       - name: Seed a real PostgreSQL
         env:
           DATABASE_URL: postgres://nearby:nearby@localhost:5432/nearby?sslmode=disable

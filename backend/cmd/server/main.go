@@ -43,6 +43,11 @@
 //	FCM_SERVICE_ACCOUNT_FILE  Firebase service-account JSON → push via FCM (Android + iOS)
 //	ALERT_WEBHOOK_URL         also/instead POST every alert as JSON here
 //	ALERT_INTERVAL            evaluation interval (default 30s); ALERT_COOLDOWN (default 1h)
+//
+// Scale-out (see README "Scale out"):
+//
+//	ROLE        all (default) | worker (feeds + alerts) | api (requests + streams only)
+//	REDIS_URL   redis://host:6379/0 — required for worker / api
 package main
 
 import (
@@ -59,6 +64,7 @@ import (
 
 	"github.com/dilshadahmad2/nearby-live/backend/internal/alerts"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/api"
+	"github.com/dilshadahmad2/nearby-live/backend/internal/cluster"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/db"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/delay"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/geo"
@@ -66,6 +72,7 @@ import (
 	"github.com/dilshadahmad2/nearby-live/backend/internal/rail"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/seed"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/stream"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -85,6 +92,14 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	node, err := newNode()
+	if err != nil {
+		return err
+	}
+	if node != nil {
+		defer node.Redis.Close()
+	}
+
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		log.Warn("DATABASE_URL not set: serving read-only from CSV files", "dir", env("DATA_DIR", "data"))
@@ -94,10 +109,13 @@ func run(log *slog.Logger) error {
 		}
 		srv := api.New(ix)
 		srv.Log = log
-		if err := setupLive(ctx, log, srv, nil); err != nil {
+		if err := setupLive(ctx, log, srv, nil, node); err != nil {
 			return err
 		}
-		if err := setupAlerts(ctx, log, srv, &alerts.MemStore{}); err != nil {
+		if err := setupAlerts(ctx, log, srv, &alerts.MemStore{}, node); err != nil {
+			return err
+		}
+		if err := startNode(ctx, log, node, srv); err != nil {
 			return err
 		}
 		return serve(ctx, log, srv)
@@ -139,17 +157,20 @@ func run(log *slog.Logger) error {
 	srv.Write = store.UpsertStation
 	srv.AdminToken = os.Getenv("ADMIN_TOKEN")
 	srv.Log = log
-	if err := setupLive(ctx, log, srv, &delay.PgStore{DB: pool}); err != nil {
+	if err := setupLive(ctx, log, srv, &delay.PgStore{DB: pool}, node); err != nil {
 		return err
 	}
-	if err := setupAlerts(ctx, log, srv, &alerts.PgStore{DB: pool}); err != nil {
+	if err := setupAlerts(ctx, log, srv, &alerts.PgStore{DB: pool}, node); err != nil {
+		return err
+	}
+	if err := startNode(ctx, log, node, srv); err != nil {
 		return err
 	}
 	return serve(ctx, log, srv)
 }
 
 // setupLive configures live delays and starts the background feeds.
-func setupLive(ctx context.Context, log *slog.Logger, srv *api.Server, store delay.Store) error {
+func setupLive(ctx context.Context, log *slog.Logger, srv *api.Server, store delay.Store, node *cluster.Node) error {
 	var provider delay.Provider
 	if u := os.Getenv("DELAY_PROVIDER_URL"); u != "" {
 		if os.Getenv("DELAY_PATH") == "" {
@@ -173,6 +194,20 @@ func setupLive(ctx context.Context, log *slog.Logger, srv *api.Server, store del
 		log.Warn("load recent delays", "err", err)
 	}
 	log.Info("live delays", "provider", srv.Delays.ProviderName(), "daily_limit", limit)
+	if node != nil {
+		node.Delays = srv.Delays
+		srv.OnDelay = node.PublishDelay
+	}
+	if node != nil && node.Role == cluster.RoleAPI {
+		// API instances run no feeds: they mirror the worker and forward
+		// area refreshes to it.
+		for _, k := range []live.Kind{live.KindFlight, live.KindWeather, live.KindTraffic, live.KindEvent} {
+			srv.Refreshers = append(srv.Refreshers, &cluster.RemoteRefresher{Node: node, K: k})
+		}
+		setupStream(srv, log)
+		log.Info("role api: mirroring the worker's live layers")
+		return nil
+	}
 
 	trains := &live.TrainSource{Hub: srv.Hub, Index: srv.Index, Delays: srv.Delays,
 		Interval: dur("LIVE_TRAINS_INTERVAL", 30*time.Second), Log: log}
@@ -223,7 +258,14 @@ func setupLive(ctx context.Context, log *slog.Logger, srv *api.Server, store del
 	}
 	log.Info("live sources", "flights", srv.Sky != nil, "weather", true, "traffic", srv.Traffic != nil,
 		"events", os.Getenv("TICKETMASTER_KEY") != "", "gtfs_rt_feeds", len(feeds))
+	if node != nil {
+		node.Refreshers = srv.Refreshers
+	}
+	setupStream(srv, log)
+	return nil
+}
 
+func setupStream(srv *api.Server, log *slog.Logger) {
 	maxConns, _ := strconv.Atoi(os.Getenv("WS_MAX_CONNS"))
 	var origins []string
 	for _, o := range strings.Split(os.Getenv("WS_ORIGINS"), ",") {
@@ -236,12 +278,49 @@ func setupLive(ctx context.Context, log *slog.Logger, srv *api.Server, store del
 		MinInterval:    dur("WS_MIN_INTERVAL", time.Second),
 		OriginPatterns: origins,
 	}}
+}
+
+// newNode reads ROLE / REDIS_URL (nil when running as a single instance).
+func newNode() (*cluster.Node, error) {
+	role := cluster.Role(env("ROLE", "all"))
+	switch role {
+	case cluster.RoleAll, cluster.RoleWorker, cluster.RoleAPI:
+	default:
+		return nil, errors.New("ROLE must be all, worker or api")
+	}
+	u := os.Getenv("REDIS_URL")
+	if u == "" {
+		if role != cluster.RoleAll {
+			return nil, errors.New("REDIS_URL is required for ROLE=" + string(role))
+		}
+		return nil, nil
+	}
+	opt, err := redis.ParseURL(u)
+	if err != nil {
+		return nil, err
+	}
+	host, _ := os.Hostname()
+	return &cluster.Node{Role: role, Redis: redis.NewClient(opt), ID: host + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)}, nil
+}
+
+func startNode(ctx context.Context, log *slog.Logger, node *cluster.Node, srv *api.Server) error {
+	if node == nil {
+		return nil
+	}
+	node.Hub, node.Log = srv.Hub, log
+	if err := node.Start(ctx); err != nil {
+		return err
+	}
+	log.Info("cluster", "role", node.Role, "id", node.ID)
 	return nil
 }
 
 // setupAlerts picks the push channel(s) and starts the alert worker.
-func setupAlerts(ctx context.Context, log *slog.Logger, srv *api.Server, store alerts.Store) error {
+func setupAlerts(ctx context.Context, log *slog.Logger, srv *api.Server, store alerts.Store, node *cluster.Node) error {
 	srv.Alerts = store
+	if node != nil && node.Role == cluster.RoleAPI {
+		return nil // the worker evaluates and sends alerts
+	}
 	var notifiers alerts.Multi
 	if f := os.Getenv("FCM_SERVICE_ACCOUNT_FILE"); f != "" {
 		fcm, err := alerts.NewFCMFromFile(ctx, f)

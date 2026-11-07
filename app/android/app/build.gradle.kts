@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.nearbylive.nearby_live"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_local_notifications 23 needs API 37 to compile (runtime minSdk is unchanged).
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

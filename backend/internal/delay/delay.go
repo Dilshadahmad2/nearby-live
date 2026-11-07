@@ -158,6 +158,17 @@ func (s *Service) Put(ctx context.Context, st Status) error {
 	return nil
 }
 
+// PutLocal caches a status that another instance already persisted.
+func (s *Service) PutLocal(st Status) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := key{st.TrainNumber, st.JourneyDate}
+	if old, ok := s.cache[k]; ok && old.ReportedAt.After(st.ReportedAt) {
+		return
+	}
+	s.cache[k] = st
+}
+
 // Latest returns the most recent status of any journey of a train that is
 // younger than MaxAge, without fetching.
 func (s *Service) Latest(number string) (Status, bool) {

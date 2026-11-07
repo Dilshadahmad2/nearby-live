@@ -51,6 +51,8 @@ type Server struct {
 	Stream *stream.Server
 	// Alerts stores push alert subscriptions (memory when nil).
 	Alerts alerts.Store
+	// OnDelay, when set, is called after a delay push (cluster broadcast).
+	OnDelay func(ctx context.Context, st delay.Status)
 
 	metrics *metrics
 }
@@ -626,6 +628,9 @@ func (s *Server) putDelay(w http.ResponseWriter, r *http.Request) {
 		s.Log.Error("save delay", "err", err)
 		writeErr(w, http.StatusInternalServerError, "could not save")
 		return
+	}
+	if s.OnDelay != nil {
+		s.OnDelay(r.Context(), st)
 	}
 	writeJSON(w, http.StatusOK, st)
 }

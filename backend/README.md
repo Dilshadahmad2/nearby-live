@@ -365,6 +365,7 @@ Re-seeding keeps coordinates added this way when the source has none.
 | `TOMTOM_KEY` / `TOMTOM_DAILY_REQUESTS` / `TRAFFIC_MAX_AGE` | — / `2000` / `3m` | Traffic layer (off without a key) |
 | `FCM_SERVICE_ACCOUNT_FILE` / `ALERT_WEBHOOK_URL` | — | Push alert delivery |
 | `TICKETMASTER_KEY` | — | Events layer |
+| `ROLE` / `REDIS_URL` | `all` / — | Scale-out roles (see "Scale out") |
 | `GTFS_RT_FEEDS` / `GTFS_RT_INTERVAL` | — / `30s` | Bus / metro vehicle feeds |
 | `ALERT_INTERVAL` / `ALERT_COOLDOWN` | `30s` / `1h` | Alert evaluation |
 
@@ -414,10 +415,36 @@ CI (`.github/workflows/ci.yml`) runs on every pull request:
 - backend: gofmt, vet, race tests, seeding a real PostgreSQL, Docker build;
 - app: analyze, tests, debug APK uploaded as an artifact.
 
+## Scale out
+
+A single instance (`ROLE=all`, the default) holds everything in memory and is enough for one
+server. To run several, share the hub through Redis:
+
+| Role | Runs | Count |
+|---|---|---|
+| `worker` | All feeds (timetable trains, OpenSky, weather, traffic, events, GTFS-RT) and the alert worker. All upstream calls and budgets live here. | exactly 1 |
+| `api` | REST and WebSocket. Mirrors the worker's layers and forwards "refresh this area" requests to it. | any number |
+
+How they talk over Redis:
+- `nearby:layer`: every layer change. The latest snapshot of each layer is also kept in
+  `nearby:snapshot:<kind>`, so a new API instance starts warm.
+- `nearby:refresh`: area requests from API instances, debounced per ~11 km cell.
+- `nearby:delay`: delay pushes, so every instance applies them at once. PostgreSQL stays the
+  durable store.
+
+`deploy/docker-compose.cluster.yml` runs PostgreSQL, Redis, one worker and two API instances
+behind Caddy (round robin with health checks). WebSockets need no sticky sessions; each
+connection is served by one instance.
+
+```bash
+cd backend/deploy
+POSTGRES_PASSWORD=change-me DOMAIN=api.example.com docker compose -f docker-compose.cluster.yml up -d --build
+```
+
 ## Limits
 
 * The timetable is a 2016 snapshot without running days. Trains are assumed to run daily and on
   time unless a live delay is known.
-* State is held in one process. To run several instances, put the hub behind Redis (GEO commands)
-  or PostGIS, and run the feeds as one worker.
+* With `ROLE=api`, the first answer for a brand-new area may lack flights, weather or traffic
+  until the worker's refresh arrives. Streams pick it up in the next diff.
 * Positions follow straight lines between stations; the app snaps them to the real track.
