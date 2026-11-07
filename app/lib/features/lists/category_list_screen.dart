@@ -7,6 +7,7 @@ import '../../core/geo/geo_utils.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../demo/demo_director.dart';
+import '../live/live_models.dart';
 import '../nearby/application/nearby_controller.dart';
 import '../nearby/scene/scene.dart';
 import '../traffic/traffic.dart';
@@ -46,6 +47,7 @@ class _CategoryListScreenState extends ConsumerState<CategoryListScreen> {
         NearbyKind.traffic => 'Traffic',
         NearbyKind.weather => 'Weather',
         NearbyKind.event => 'Events',
+        NearbyKind.transit => 'Buses & Metro',
       };
 
   @override
@@ -133,8 +135,38 @@ class _CategoryListScreenState extends ConsumerState<CategoryListScreen> {
               inRange: r.distanceKm <= range,
             ),
         ];
-      case NearbyKind.weather:
       case NearbyKind.event:
+        return [
+          for (final r in st.eventsByDistance())
+            _Row(
+              colour: AppColors.event,
+              icon: Icons.music_note_rounded,
+              title: r.item.name,
+              subtitle: [
+                if (r.item.start != null) formatEventWhen(r.item.start!, now),
+                if (r.item.venue != null) r.item.venue!,
+                if (r.item.category != null) r.item.category!,
+              ].join(' · '),
+              km: r.distanceKm,
+              inRange: r.distanceKm <= range,
+            ),
+        ];
+      case NearbyKind.transit:
+        final u = st.user;
+        if (u == null) return const [];
+        final list = [for (final v in st.transit) (v, haversineKm(u, v.position))]..sort((a, b) => a.$2.compareTo(b.$2));
+        return [
+          for (final (v, d) in list.take(100))
+            _Row(
+              colour: const Color(0xFF14C8B4),
+              icon: v.kind == 'metro' ? Icons.subway_rounded : Icons.directions_bus_rounded,
+              title: '${v.kind == 'metro' ? 'Metro' : 'Bus'} ${v.label}',
+              subtitle: '${v.route ?? ''}${v.speedKmh > 0 ? ' · ${v.speedKmh.round()} km/h' : ''}',
+              km: d,
+              inRange: d <= range,
+            ),
+        ];
+      case NearbyKind.weather:
         return const [];
     }
   }
@@ -170,7 +202,7 @@ class _CategoryListScreenState extends ConsumerState<CategoryListScreen> {
                 km: 0.9,
                 inRange: true),
           ],
-        NearbyKind.weather => const [],
+        NearbyKind.weather || NearbyKind.transit => const [],
       };
 
   static Color _congestionColour(Congestion c) => switch (c) {
@@ -289,7 +321,8 @@ class _Empty extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = switch ((kind, mode)) {
       (_, NearbyMode.locating) => 'Finding your location…',
-      (NearbyKind.event, _) => 'Events are coming in a later update (Ticketmaster / PredictHQ).',
+      (NearbyKind.event, _) => 'No events nearby in the next 24 hours. Events need the backend with a Ticketmaster key.',
+      (NearbyKind.transit, _) => 'No buses or metro trains reported nearby. These need the backend with a GTFS-Realtime feed.',
       (NearbyKind.train, _) => 'No rail lines with trains found near you yet.',
       (NearbyKind.traffic, _) => 'No traffic data near you yet.',
       _ => 'Nothing nearby right now.',

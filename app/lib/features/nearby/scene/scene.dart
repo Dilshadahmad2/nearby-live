@@ -4,7 +4,7 @@ import '../../../core/geo/geo_point.dart';
 import '../../weather/weather.dart';
 import 'models_3d.dart';
 
-enum NearbyKind { train, flight, traffic, weather, event }
+enum NearbyKind { train, flight, traffic, weather, event, transit }
 
 /// Header pill state.
 enum LiveStatus { locating, live, stale, demo }

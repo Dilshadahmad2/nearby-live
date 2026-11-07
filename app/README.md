@@ -70,7 +70,8 @@ The app is keyless except for the optional TomTom key.
 | Rail geometry | Overpass API (`railway=rail`) | none | ways stitched into continuous routes, cached per area |
 | Trains | `TrainDataSource` → `BackendTrainSource` (with `BACKEND_URL`) or `MockTrainSource` | — | the backend estimates positions from the Indian Railways timetable and station coordinates (8,990 stations); the app snaps them onto the real OSM rail line. Without a backend, the mock runs named trains along real rail lines |
 | Road traffic | TomTom Flow Segment Data | `--dart-define=TOMTOM_KEY` | without a key: `MockTrafficSource` puts simulated jams on real major roads from Overpass |
-| Events | — | — | Phase 2 (Ticketmaster / PredictHQ); shown in the demo only |
+| Events | the backend's `event` layer (Ticketmaster), demo otherwise | backend key | nearest event in range: card, pin, rising stage, crowd and spotlights; Events tab lists all |
+| Buses / metro | the backend's GTFS-Realtime feeds | backend config | small teal pins on the map |
 
 Attribution ("© OpenStreetMap contributors", Esri, OpenFreeMap) is shown on the map above the bottom nav.
 

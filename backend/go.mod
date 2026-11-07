@@ -3,9 +3,11 @@ module github.com/dilshadahmad2/nearby-live/backend
 go 1.23
 
 require (
+	github.com/MobilityData/gtfs-realtime-bindings/golang/gtfs v1.0.0
 	github.com/coder/websocket v1.8.12
 	github.com/jackc/pgx/v5 v5.7.2
 	golang.org/x/oauth2 v0.24.0
+	google.golang.org/protobuf v1.26.0
 )
 
 require (

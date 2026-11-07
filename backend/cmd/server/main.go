@@ -28,6 +28,9 @@
 //	WEATHER_MAX_AGE         Open-Meteo cache per ~11 km cell (default 10m)
 //	TOMTOM_KEY              enables the traffic layer (key stays on the server)
 //	TOMTOM_DAILY_REQUESTS   default 2000; TRAFFIC_MAX_AGE per ~5 km cell (default 3m)
+//	TICKETMASTER_KEY        enables events (next 24 h around requests)
+//	GTFS_RT_FEEDS           "kind|name|url|Header: value" per feed, ";"-separated (buses, metro)
+//	GTFS_RT_INTERVAL        poll interval (default 30s)
 //
 // WebSocket stream (GET /v1/live/ws):
 //
@@ -206,7 +209,20 @@ func setupLive(ctx context.Context, log *slog.Logger, srv *api.Server, store del
 		srv.Traffic = &live.Traffic{Hub: srv.Hub, Key: key, DailyRequests: reqs, MaxAge: dur("TRAFFIC_MAX_AGE", 3*time.Minute), Log: log}
 		srv.Refreshers = append(srv.Refreshers, srv.Traffic)
 	}
-	log.Info("live sources", "flights", srv.Sky != nil, "weather", true, "traffic", srv.Traffic != nil)
+	if key := os.Getenv("TICKETMASTER_KEY"); key != "" {
+		srv.Refreshers = append(srv.Refreshers, &live.Events{Hub: srv.Hub, Key: key, Log: log})
+	}
+	feeds, err := live.ParseGTFSFeeds(os.Getenv("GTFS_RT_FEEDS"))
+	if err != nil {
+		return err
+	}
+	for i := range feeds {
+		f := feeds[i]
+		f.Hub, f.Log, f.Interval = srv.Hub, log, dur("GTFS_RT_INTERVAL", 30*time.Second)
+		go f.Run(ctx)
+	}
+	log.Info("live sources", "flights", srv.Sky != nil, "weather", true, "traffic", srv.Traffic != nil,
+		"events", os.Getenv("TICKETMASTER_KEY") != "", "gtfs_rt_feeds", len(feeds))
 
 	maxConns, _ := strconv.Atoi(os.Getenv("WS_MAX_CONNS"))
 	var origins []string

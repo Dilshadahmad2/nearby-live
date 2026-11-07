@@ -4,6 +4,7 @@ import 'dart:ui';
 import '../../../core/geo/geo_point.dart';
 import '../../../core/geo/geo_utils.dart';
 import '../../flights/flight.dart';
+import '../../live/live_models.dart';
 import '../../traffic/traffic.dart';
 import '../../trains/train.dart';
 import '../application/nearby_controller.dart';
@@ -59,6 +60,9 @@ class LiveDirector implements SceneDirector {
   final _flights = <String, _FlightAnim>{};
   final _traffic = Presence(enterDuration: const Duration(milliseconds: 1200));
   final _weather = Presence();
+  final _event = Presence(enterDuration: const Duration(milliseconds: 1400));
+  String? _eventId;
+  List<Json> _crowd = const [];
 
   LocalProjector? _proj;
   List<TrafficSegment>? _vehicleSource;
@@ -70,6 +74,7 @@ class LiveDirector implements SceneDirector {
 
   static const _maxTrains = 3;
   static const _maxFlightPins = 5;
+  static const _maxTransitPins = 25;
 
   @override
   SceneSnapshot tick(double dt, DateTime now) {
@@ -249,6 +254,57 @@ class LiveDirector implements SceneDirector {
       cards[NearbyKind.weather] = CardInfo(title: 'Weather', subtitle: w.label, distanceKm: 0);
     }
 
+    // ---------------------------------------------------------------- events
+    final events = st.eventsByDistance().where((r) => r.distanceKm <= range).toList();
+    final ev = events.isEmpty ? null : events.first;
+    if (ev != null && ev.item.id != _eventId) {
+      // A different nearest event: rebuild its crowd around the venue.
+      _eventId = ev.item.id;
+      final m = proj.toMetres(ev.item.position);
+      _crowd = buildCrowd(proj, m.x, m.y);
+    }
+    _event.update(dt, ev != null);
+    if (ev != null && _event.isVisible) {
+      if (!iconMode) {
+        final m = proj.toMetres(ev.item.position);
+        buildStage(proj, m.x, m.y, _event.value, movers);
+      }
+      items.add(SceneItem(
+        kind: NearbyKind.event,
+        id: ev.item.id,
+        anchor: ev.item.position,
+        vis: _event.value,
+        shown: _event.isShown,
+        distanceKm: ev.distanceKm,
+      ));
+      if (_event.isShown) {
+        cards[NearbyKind.event] = CardInfo(
+          title: 'Events',
+          subtitle: ev.item.name,
+          distanceKm: ev.distanceKm,
+          extra: ev.item.start == null ? ev.item.venue : formatEventWhen(ev.item.start!, now),
+          moreCount: events.length - 1,
+        );
+      }
+    }
+
+    // --------------------------------------------------------------- transit
+    var transitPins = 0;
+    for (final v in st.transit) {
+      if (transitPins >= _maxTransitPins) break;
+      if (haversineKm(user, v.position) > range) continue;
+      transitPins++;
+      items.add(SceneItem(
+        kind: NearbyKind.transit,
+        id: 'tr:${v.id}',
+        anchor: v.position,
+        headingDeg: v.headingDeg,
+        shown: true,
+        distanceKm: haversineKm(user, v.position),
+        primary: false,
+      ));
+    }
+
     return SceneSnapshot(
       user: user,
       rangeKm: range,
@@ -258,10 +314,13 @@ class LiveDirector implements SceneDirector {
       staticVersion: _staticVersion,
       staticFeatures: _static,
       flows: flows,
+      crowd: ev != null && !iconMode ? _crowd : const [],
+      crowdOpacity: _event.value,
       items: items,
       cards: cards,
       weather: w,
       weatherVis: _weather.isShown ? 1.0 : 0.0,
+      stageLightsOn: _event.isShown,
     );
   }
 

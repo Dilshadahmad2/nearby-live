@@ -10,6 +10,7 @@ import '../../flights/flight.dart';
 import '../../flights/flight_source.dart';
 import '../../flights/opensky_api.dart';
 import '../../live/live_mapping.dart';
+import '../../live/live_models.dart';
 import '../../live/live_stream.dart';
 import '../../location/location_repository.dart';
 import '../../settings/settings_controller.dart';
@@ -48,6 +49,8 @@ class NearbyState {
     this.trafficIsMock = true,
     this.weather,
     this.health = const {},
+    this.events = const [],
+    this.transit = const [],
   });
 
   final NearbyMode mode;
@@ -60,6 +63,12 @@ class NearbyState {
   final bool trafficIsMock;
   final Weather? weather;
   final Map<NearbyKind, SourceHealth> health;
+
+  /// Upcoming events near the user (backend only).
+  final List<NearbyEvent> events;
+
+  /// Buses / metro trains near the user (backend GTFS-Realtime feeds).
+  final List<TransitVehicle> transit;
 
   bool get isDemo => mode == NearbyMode.demo;
 
@@ -74,6 +83,8 @@ class NearbyState {
     bool? trafficIsMock,
     Weather? weather,
     Map<NearbyKind, SourceHealth>? health,
+    List<NearbyEvent>? events,
+    List<TransitVehicle>? transit,
   }) =>
       NearbyState(
         mode: mode ?? this.mode,
@@ -86,6 +97,8 @@ class NearbyState {
         trafficIsMock: trafficIsMock ?? this.trafficIsMock,
         weather: weather ?? this.weather,
         health: health ?? this.health,
+        events: events ?? this.events,
+        transit: transit ?? this.transit,
       );
 
   /// Overall pill status: amber when any enabled source is stale.
@@ -114,6 +127,14 @@ class NearbyState {
     final u = user;
     if (u == null) return const [];
     final list = [for (final f in flights) Ranged(f, haversineKm(u, f.positionAt(now)))];
+    list.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
+    return list;
+  }
+
+  List<Ranged<NearbyEvent>> eventsByDistance() {
+    final u = user;
+    if (u == null) return const [];
+    final list = [for (final e in events) Ranged(e, haversineKm(u, e.position))];
     list.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
     return list;
   }
@@ -320,8 +341,18 @@ class NearbyController extends Notifier<NearbyState> {
     final flights = <FlightTrack>[];
     final trains = <Train>[];
     final traffic = <TrafficSegment>[];
+    final events = <NearbyEvent>[];
+    final transit = <TransitVehicle>[];
     LiveObject? nearestWeather;
     for (final o in objects.values) {
+      if (o.kind == 'event') {
+        events.add(eventFromLive(o));
+        continue;
+      }
+      if (o.kind == 'bus' || o.kind == 'metro') {
+        transit.add(transitFromLive(o));
+        continue;
+      }
       if (o.kind == 'weather') {
         if (nearestWeather == null || (o.distanceKm ?? 1e9) < (nearestWeather.distanceKm ?? 1e9)) nearestWeather = o;
         continue;
@@ -352,6 +383,8 @@ class NearbyController extends Notifier<NearbyState> {
       weather: nearestWeather == null ? null : weatherFromLive(nearestWeather, now),
       traffic: _streamTraffic ? traffic : null,
       trafficIsMock: _streamTraffic ? false : null,
+      events: events,
+      transit: transit,
     );
     _ok(NearbyKind.flight, const Duration(minutes: 2));
     _ok(NearbyKind.train, const Duration(minutes: 5));

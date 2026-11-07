@@ -140,7 +140,7 @@ class LiveSubscription {
   const LiveSubscription({
     required this.center,
     required this.radiusKm,
-    this.types = const ['train', 'flight', 'traffic', 'weather'],
+    this.types = const ['train', 'flight', 'traffic', 'weather', 'event', 'bus', 'metro'],
     this.intervalMs = 2000,
   });
   final GeoPoint center;

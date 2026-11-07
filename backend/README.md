@@ -165,7 +165,8 @@ curl -X POST localhost:8080/v1/position/estimate -H 'Content-Type: application/j
  OpenSky             ─▶ flights  (India sweep + on-demand refresh around requests)  │──▶ /v1/live/bbox
  Open-Meteo          ─▶ weather  (one object per ~11 km cell, cached 10 min)       │──▶ /v1/live/{kind}/{id}
  TomTom (server key) ─▶ traffic  (road segments per ~5 km area, cached 3 min)      │
- (next: events, buses, ships …)                                                     │
+ Ticketmaster (key)  ─▶ events   (next 24 h per ~11 km cell, cached 30 min)        │
+ GTFS-Realtime feeds ─▶ bus / metro (vehicle positions, polled every 30 s)        │
                      └────────────────────────────────────────────────────────────┘
 ```
 
@@ -190,6 +191,24 @@ user in the same area shares one upstream request, so the TomTom key never leave
 |---|---|---|
 | `weather` | `status` / `label` (e.g. "Partly Cloudy"); `extra.temperature_c`, `humidity_pct`, `wind_kmh`, `rain_pct`, `code` | Always on (Open-Meteo, no key). The nearest cell is included even when its centre is outside a small radius. |
 | `traffic` | `status` = free / light / moderate / heavy / closed; `label` = road class; `speed_kmh`; `extra.free_flow_kmh`, `current_kmh`, `closed`, `coordinates` ([lon, lat] line) | Only with `TOMTOM_KEY`. Each refresh is 7 samples, capped by `TOMTOM_DAILY_REQUESTS` (default 2000). |
+
+### Events and public transport
+
+* **Events** (`event`): the Ticketmaster Discovery API, with `TICKETMASTER_KEY` (free tier).
+  Events in the next 24 hours are fetched on demand around requests.
+  * `label` = event name, `name` = venue;
+  * `extra.local_date` / `local_time`, `category`, `url`.
+* **Buses and metro** (`bus`, `metro`, or any kind you name): any GTFS-Realtime VehiclePositions
+  feed. Set it in `GTFS_RT_FEEDS`, one feed per `;`:
+
+  ```
+  GTFS_RT_FEEDS=bus|delhi-otd|https://otd.delhi.gov.in/api/realtime/VehiclePositions.pb?key=YOUR_KEY
+  ```
+
+  Delhi's Open Transit Data portal (otd.delhi.gov.in) gives free keys for DTC/DIMTS bus
+  positions. Format: `kind|name|url[|Header: value]`.
+  * Vehicles are dead-reckoned with the feed's speed. Fixes older than 10 minutes are dropped.
+  * `label` = vehicle label or route, `name` = route id, `extra.route_id`, `trip_id`, `stop_id`.
 
 ### WebSocket stream (`/v1/live/ws`)
 
@@ -345,6 +364,8 @@ Re-seeding keeps coordinates added this way when the source has none.
 | `WEATHER_MAX_AGE` | `10m` | Weather cache per cell |
 | `TOMTOM_KEY` / `TOMTOM_DAILY_REQUESTS` / `TRAFFIC_MAX_AGE` | — / `2000` / `3m` | Traffic layer (off without a key) |
 | `FCM_SERVICE_ACCOUNT_FILE` / `ALERT_WEBHOOK_URL` | — | Push alert delivery |
+| `TICKETMASTER_KEY` | — | Events layer |
+| `GTFS_RT_FEEDS` / `GTFS_RT_INTERVAL` | — / `30s` | Bus / metro vehicle feeds |
 | `ALERT_INTERVAL` / `ALERT_COOLDOWN` | `30s` / `1h` | Alert evaluation |
 
 ## Deploy

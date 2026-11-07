@@ -3,6 +3,7 @@ import '../flights/flight.dart';
 import '../traffic/traffic.dart';
 import '../trains/backend_train_source.dart';
 import '../weather/weather.dart';
+import 'live_models.dart';
 import 'live_stream.dart';
 
 /// Hub flight → [FlightState]. The hub has already dead-reckoned the
@@ -66,3 +67,29 @@ TrafficSegment? trafficFromLive(LiveObject o) {
     closed: o.extra['closed'] == true,
   );
 }
+
+/// Hub event → [NearbyEvent].
+NearbyEvent eventFromLive(LiveObject o) {
+  DateTime? start;
+  final d = o.extra['local_date'], t = o.extra['local_time'];
+  if (d is String && d.isNotEmpty) start = DateTime.tryParse('${d}T${t is String && t.isNotEmpty ? t : '00:00:00'}');
+  return NearbyEvent(
+    id: o.id,
+    name: o.label,
+    position: o.position,
+    venue: o.name,
+    start: start,
+    category: o.extra['category'] as String?,
+  );
+}
+
+/// Hub bus / metro → [TransitVehicle].
+TransitVehicle transitFromLive(LiveObject o) => TransitVehicle(
+      id: o.id,
+      kind: o.kind,
+      label: o.label,
+      route: o.name,
+      position: o.position,
+      headingDeg: o.headingDeg,
+      speedKmh: o.speedKmh,
+    );

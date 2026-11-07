@@ -468,6 +468,13 @@ class _OverlayLayer extends StatelessWidget {
                 child: MapPin(colour: AppColors.flight, icon: Icons.flight_rounded, shown: item.shown, size: 22 * s),
               ));
             }
+          case NearbyKind.transit:
+            // Buses / metro from GTFS-Realtime feeds: small teal pins.
+            children.add(Positioned(
+              left: p.dx - 9 * s,
+              top: p.dy - 24 * s,
+              child: MapPin(colour: const Color(0xFF14C8B4), icon: Icons.directions_bus_rounded, shown: item.shown, size: 18 * s),
+            ));
           case NearbyKind.weather:
             break;
         }
