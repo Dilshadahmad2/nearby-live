@@ -104,6 +104,7 @@ lib/
      │   ├─ domain/presence.dart hidden → entering → present → leaving state machine (+ ScriptedMover)
      │   ├─ scene/               SceneSnapshot, LiveDirector, 3D model builders (train, viaduct, cars, stage)
      │   └─ presentation/        NearbyScreen, MapLibre sync, HUD painters, plane / weather / pins, cards, chrome
+     ├─ live/                    LiveStreamClient (WebSocket, reconnect, snapshot/diff store), mapping to flights/trains
      └─ lists/                   Trains / Traffic / Weather / Events list screens
 ```
 
