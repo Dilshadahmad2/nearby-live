@@ -1,0 +1,424 @@
+{
+ "version": 8,
+ "name": "Nearby Live Neon",
+ "sources": {
+  "openmaptiles": {
+   "type": "vector",
+   "url": "https://tiles.openfreemap.org/planet",
+   "attribution": "\u00a9 OpenMapTiles \u00a9 OpenStreetMap contributors"
+  }
+ },
+ "layers": [
+  {
+   "id": "bg",
+   "type": "background",
+   "paint": {
+    "background-color": "#0f2a5c"
+   }
+  },
+  {
+   "id": "landcover",
+   "type": "fill",
+   "source": "openmaptiles",
+   "source-layer": "landcover",
+   "filter": [
+    "in",
+    [
+     "get",
+     "class"
+    ],
+    [
+     "literal",
+     [
+      "grass",
+      "wood",
+      "farmland"
+     ]
+    ]
+   ],
+   "paint": {
+    "fill-color": "#19b25e",
+    "fill-opacity": 0.35
+   }
+  },
+  {
+   "id": "park",
+   "type": "fill",
+   "source": "openmaptiles",
+   "source-layer": "park",
+   "paint": {
+    "fill-color": "#19b25e",
+    "fill-opacity": 0.75
+   }
+  },
+  {
+   "id": "park-edge",
+   "type": "line",
+   "source": "openmaptiles",
+   "source-layer": "park",
+   "paint": {
+    "line-color": "#6dffa8",
+    "line-opacity": 0.55,
+    "line-width": 1.2
+   }
+  },
+  {
+   "id": "water",
+   "type": "fill",
+   "source": "openmaptiles",
+   "source-layer": "water",
+   "paint": {
+    "fill-color": "#1aa9ff"
+   }
+  },
+  {
+   "id": "water-glow",
+   "type": "line",
+   "source": "openmaptiles",
+   "source-layer": "water",
+   "paint": {
+    "line-color": "#8ff0ff",
+    "line-width": 3,
+    "line-blur": 2,
+    "line-opacity": 0.9
+   }
+  },
+  {
+   "id": "waterway",
+   "type": "line",
+   "source": "openmaptiles",
+   "source-layer": "waterway",
+   "paint": {
+    "line-color": "#5fdcff",
+    "line-width": 1.5,
+    "line-opacity": 0.8
+   }
+  },
+  {
+   "id": "rail",
+   "type": "line",
+   "source": "openmaptiles",
+   "source-layer": "transportation",
+   "filter": [
+    "==",
+    [
+     "get",
+     "class"
+    ],
+    "rail"
+   ],
+   "paint": {
+    "line-color": "#c9d4f2",
+    "line-width": [
+     "interpolate",
+     [
+      "linear"
+     ],
+     [
+      "zoom"
+     ],
+     10,
+     0.8,
+     15,
+     2.4
+    ],
+    "line-dasharray": [
+     3,
+     2
+    ],
+    "line-opacity": 0.8
+   }
+  },
+  {
+   "id": "road-glow",
+   "type": "line",
+   "source": "openmaptiles",
+   "source-layer": "transportation",
+   "filter": [
+    "all",
+    [
+     "==",
+     [
+      "geometry-type"
+     ],
+     "LineString"
+    ],
+    [
+     "in",
+     [
+      "get",
+      "class"
+     ],
+     [
+      "literal",
+      [
+       "motorway",
+       "trunk",
+       "primary",
+       "secondary",
+       "tertiary",
+       "minor"
+      ]
+     ]
+    ]
+   ],
+   "layout": {
+    "line-cap": "round",
+    "line-join": "round"
+   },
+   "paint": {
+    "line-color": [
+     "match",
+     [
+      "get",
+      "class"
+     ],
+     [
+      "motorway",
+      "trunk"
+     ],
+     "#ffb000",
+     "primary",
+     "#ff4fa0",
+     [
+      "secondary",
+      "tertiary"
+     ],
+     "#7f8cff",
+     "#4d7bd8"
+    ],
+    "line-width": [
+     "interpolate",
+     [
+      "linear"
+     ],
+     [
+      "zoom"
+     ],
+     10,
+     [
+      "match",
+      [
+       "get",
+       "class"
+      ],
+      [
+       "motorway",
+       "trunk"
+      ],
+      6,
+      "primary",
+      4,
+      [
+       "secondary",
+       "tertiary"
+      ],
+      2,
+      0
+     ],
+     15,
+     [
+      "match",
+      [
+       "get",
+       "class"
+      ],
+      [
+       "motorway",
+       "trunk"
+      ],
+      16,
+      "primary",
+      12,
+      [
+       "secondary",
+       "tertiary"
+      ],
+      9,
+      6
+     ]
+    ],
+    "line-blur": 6,
+    "line-opacity": 0.45
+   }
+  },
+  {
+   "id": "road",
+   "type": "line",
+   "source": "openmaptiles",
+   "source-layer": "transportation",
+   "filter": [
+    "all",
+    [
+     "==",
+     [
+      "geometry-type"
+     ],
+     "LineString"
+    ],
+    [
+     "in",
+     [
+      "get",
+      "class"
+     ],
+     [
+      "literal",
+      [
+       "motorway",
+       "trunk",
+       "primary",
+       "secondary",
+       "tertiary",
+       "minor"
+      ]
+     ]
+    ]
+   ],
+   "layout": {
+    "line-cap": "round",
+    "line-join": "round"
+   },
+   "paint": {
+    "line-color": [
+     "match",
+     [
+      "get",
+      "class"
+     ],
+     [
+      "motorway",
+      "trunk"
+     ],
+     "#ffd166",
+     "primary",
+     "#ff8ac2",
+     [
+      "secondary",
+      "tertiary"
+     ],
+     "#aab6ff",
+     "#7aa2f0"
+    ],
+    "line-width": [
+     "interpolate",
+     [
+      "linear"
+     ],
+     [
+      "zoom"
+     ],
+     10,
+     [
+      "match",
+      [
+       "get",
+       "class"
+      ],
+      [
+       "motorway",
+       "trunk"
+      ],
+      1.6,
+      "primary",
+      1.2,
+      [
+       "secondary",
+       "tertiary"
+      ],
+      0.6,
+      0.2
+     ],
+     15,
+     [
+      "match",
+      [
+       "get",
+       "class"
+      ],
+      [
+       "motorway",
+       "trunk"
+      ],
+      4.5,
+      "primary",
+      3.2,
+      [
+       "secondary",
+       "tertiary"
+      ],
+      2.2,
+      1.4
+     ]
+    ]
+   }
+  },
+  {
+   "id": "bld",
+   "type": "fill-extrusion",
+   "source": "openmaptiles",
+   "source-layer": "building",
+   "minzoom": 12,
+   "paint": {
+    "fill-extrusion-color": [
+     "interpolate",
+     [
+      "linear"
+     ],
+     [
+      "coalesce",
+      [
+       "get",
+       "render_height"
+      ],
+      8
+     ],
+     0,
+     "#1e5bff",
+     12,
+     "#2fb7ff",
+     24,
+     "#7c6bff",
+     40,
+     "#d35bff",
+     70,
+     "#ff5fa8",
+     110,
+     "#ffc23d"
+    ],
+    "fill-extrusion-height": [
+     "*",
+     1.5,
+     [
+      "coalesce",
+      [
+       "get",
+       "render_height"
+      ],
+      8
+     ]
+    ],
+    "fill-extrusion-base": [
+     "coalesce",
+     [
+      "get",
+      "render_min_height"
+     ],
+     0
+    ],
+    "fill-extrusion-opacity": 0.93,
+    "fill-extrusion-vertical-gradient": true
+   }
+  }
+ ],
+ "light": {
+  "anchor": "map",
+  "color": "#ffffff",
+  "intensity": 0.5,
+  "position": [
+   1.4,
+   210,
+   35
+  ]
+ }
+}
