@@ -51,8 +51,11 @@ GeoBounds boundingBox(GeoPoint center, double radiusKm) {
   );
 }
 
+/// Tolerance for range edges (1 mm), so a point exactly at the range is in.
+const double rangeEpsilonKm = 1e-6;
+
 /// True when [p] is within [rangeKm] of [user] (inclusive).
-bool isInRange(GeoPoint user, GeoPoint p, double rangeKm) => haversineKm(user, p) <= rangeKm;
+bool isInRange(GeoPoint user, GeoPoint p, double rangeKm) => haversineKm(user, p) <= rangeKm + rangeEpsilonKm;
 
 /// An item paired with its distance from the user.
 class Ranged<T> {
@@ -71,7 +74,7 @@ List<Ranged<T>> filterInRange<T>(
   final out = <Ranged<T>>[];
   for (final it in items) {
     final d = haversineKm(user, positionOf(it));
-    if (d <= rangeKm) out.add(Ranged(it, d));
+    if (d <= rangeKm + rangeEpsilonKm) out.add(Ranged(it, d));
   }
   out.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
   return out;

@@ -9,10 +9,13 @@ import '../../../core/geo/geo_utils.dart';
 import '../../flights/flight.dart';
 import '../../flights/flight_source.dart';
 import '../../flights/opensky_api.dart';
+import '../../live/live_mapping.dart';
+import '../../live/live_stream.dart';
 import '../../location/location_repository.dart';
 import '../../settings/settings_controller.dart';
 import '../../traffic/traffic.dart';
 import '../../traffic/traffic_source.dart';
+import '../../trains/backend_train_source.dart';
 import '../../trains/train.dart';
 import '../../trains/train_data_source.dart';
 import '../../weather/open_meteo_api.dart';
@@ -146,9 +149,22 @@ class NearbyController extends Notifier<NearbyState> {
   GeoPoint? _weatherAt;
   int _generation = 0;
 
+  // WebSocket live stream (only with BACKEND_URL).
+  StreamSubscription<Map<String, LiveObject>>? _streamObjects;
+  StreamSubscription<bool>? _streamConnected;
+  GeoPoint? _subscribedAt;
+  double _subscribedRadius = 0;
+  List<List<GeoPoint>> _rails = const [];
+  GeoPoint? _railsAt;
+  double _railsRadius = 0;
+
+  LiveStreamClient? _stream;
+  bool get _streaming => _stream?.isConnected ?? false;
+
   @override
   NearbyState build() {
     final settings = ref.read(settingsProvider);
+    _stream = ref.read(liveStreamClientProvider);
     ref.listen<SettingsState>(settingsProvider, _onSettings);
     ref.onDispose(_stopAll);
     Future.microtask(() => _start(settings));
@@ -180,6 +196,7 @@ class NearbyController extends Notifier<NearbyState> {
     }
     state = state.copyWith(mode: NearbyMode.live, access: access, user: here);
     _locationSub = loc.watch().listen(_onLocation, onError: (_) {});
+    _startStream();
     _startPolling();
   }
 
@@ -193,6 +210,7 @@ class NearbyController extends Notifier<NearbyState> {
       state = state.copyWith(rangeKm: next.rangeKm);
       if (state.mode == NearbyMode.live) {
         // The query area depends on the range: refresh now.
+        _resubscribe(force: true);
         _refreshFlights();
         _refreshTrains();
         _refreshTraffic();
@@ -202,6 +220,7 @@ class NearbyController extends Notifier<NearbyState> {
 
   void _onLocation(GeoPoint p) {
     state = state.copyWith(user: p);
+    _resubscribe();
     final w = _weatherAt;
     if (w == null || haversineKm(w, p) > 5) _refreshWeather();
   }
@@ -211,6 +230,7 @@ class NearbyController extends Notifier<NearbyState> {
 
   void pause() {
     _paused = true;
+    _stream?.stop();
     for (final t in _timers.values) {
       t.cancel();
     }
@@ -220,7 +240,11 @@ class NearbyController extends Notifier<NearbyState> {
   void resume() {
     if (!_paused) return;
     _paused = false;
-    if (state.mode == NearbyMode.live) _startPolling();
+    if (state.mode == NearbyMode.live) {
+      _stream?.start();
+      _resubscribe(force: true);
+      _startPolling();
+    }
   }
 
   void _stopAll() {
@@ -230,6 +254,88 @@ class NearbyController extends Notifier<NearbyState> {
     _timers.clear();
     _locationSub?.cancel();
     _locationSub = null;
+    _streamObjects?.cancel();
+    _streamObjects = null;
+    _streamConnected?.cancel();
+    _streamConnected = null;
+    _stream?.stop();
+    _subscribedAt = null;
+  }
+
+  // ------------------------------------------------------------- live stream
+
+  /// Trains and flights arrive over the backend's WebSocket; polling only
+  /// runs while it is disconnected.
+  void _startStream() {
+    final client = _stream;
+    if (client == null) return;
+    _streamObjects = client.objects.listen(_onStreamObjects);
+    _streamConnected = client.connected.listen((up) {
+      if (!up && state.mode == NearbyMode.live && !_paused) {
+        // Fall back to polling right away.
+        _refreshFlights();
+        _refreshTrains();
+      }
+    });
+    client.start();
+    _resubscribe(force: true);
+  }
+
+  double get _streamRadius => state.rangeKm * 1.5 + 5;
+
+  void _resubscribe({bool force = false}) {
+    final client = _stream;
+    final u = state.user;
+    if (client == null || u == null) return;
+    final at = _subscribedAt;
+    final moved = at == null || haversineKm(at, u) > .3;
+    if (!force && !moved && _subscribedRadius == _streamRadius) return;
+    _subscribedAt = u;
+    _subscribedRadius = _streamRadius;
+    client.subscribe(LiveSubscription(center: u, radiusKm: _streamRadius));
+    _ensureRails(u);
+  }
+
+  /// Rail geometry for snapping streamed trains onto the track.
+  Future<void> _ensureRails(GeoPoint u) async {
+    final at = _railsAt;
+    final r = state.rangeKm.toDouble();
+    if (at != null && haversineKm(at, u) < r * .3 && _railsRadius >= r) return;
+    _railsAt = u;
+    _railsRadius = r;
+    try {
+      _rails = await ref.read(railGeometryProvider).railRoutes(u, r);
+    } catch (_) {
+      // Without rails, trains run on station-to-station lines.
+    }
+  }
+
+  void _onStreamObjects(Map<String, LiveObject> objects) {
+    final now = DateTime.now();
+    final byId = {for (final f in state.flights) f.state.icao24: f};
+    final flights = <FlightTrack>[];
+    final trains = <Train>[];
+    for (final o in objects.values) {
+      if (o.kind == 'flight' && !o.onGround) {
+        final s = flightFromLive(o, now);
+        final track = byId[s.icao24];
+        if (track == null) {
+          final t = FlightTrack(s);
+          t.route = o.name;
+          flights.add(t);
+        } else {
+          track.update(s, now);
+          flights.add(track);
+        }
+      } else if (o.kind == 'train') {
+        trains.add(snapToRail(trainEstimateFromLive(o), _rails, now));
+      }
+    }
+    state = state.copyWith(flights: flights, trains: trains);
+    _ok(NearbyKind.flight, const Duration(minutes: 2));
+    _ok(NearbyKind.train, const Duration(minutes: 5));
+    final u = state.user;
+    if (u != null) _lookupRoutes(flights, u);
   }
 
   void _startPolling() {
@@ -280,6 +386,10 @@ class NearbyController extends Notifier<NearbyState> {
   Future<void> _refreshFlights() async {
     final u = state.user;
     if (u == null) return;
+    if (_streaming) {
+      _schedule(NearbyKind.flight, AppConfig.flightPoll, _refreshFlights);
+      return;
+    }
     const stale = Duration(minutes: 2);
     var next = _flightBackoff.current;
     try {
@@ -343,6 +453,10 @@ class NearbyController extends Notifier<NearbyState> {
   Future<void> _refreshTrains() async {
     final u = state.user;
     if (u == null) return;
+    if (_streaming) {
+      _schedule(NearbyKind.train, AppConfig.trainPoll, _refreshTrains);
+      return;
+    }
     const stale = Duration(minutes: 5);
     try {
       final trains = await ref.read(trainDataSourceProvider).nearbyTrains(u, state.rangeKm.toDouble());

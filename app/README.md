@@ -21,8 +21,10 @@ Optional live road traffic (TomTom Traffic Flow, free tier):
 flutter run --dart-define=TOMTOM_KEY=your_tomtom_key
 ```
 
-Use the backend (`../backend`). Trains then come from the timetable plus live delays, and flights
-come from the backend's live hub instead of each phone calling OpenSky:
+Use the backend (`../backend`). Trains (timetable plus live delays) and flights then arrive over
+one WebSocket (`/v1/live/ws`): a snapshot, then only the changes about every 2 s. The app
+re-subscribes when you move or change the range, reconnects with back-off, and falls back to
+polling while the connection is down:
 
 ```bash
 flutter run --dart-define=BACKEND_URL=http://10.0.2.2:8080   # Android emulator → host

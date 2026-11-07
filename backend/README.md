@@ -98,7 +98,8 @@ All responses are JSON. Lists look like `{"count": n, "items": [...]}`.
 | `GET /v1/live?lat=&lon=&radius_km=10&types=train,flight&limit=100` | **Everything live near a point**, nearest first |
 | `GET /v1/live/bbox?south=&west=&north=&east=&types=` | Everything live in a map viewport |
 | `GET /v1/live/{kind}/{id}` | One object, e.g. `/v1/live/train/12951`, `/v1/live/flight/800c1b` |
-| `GET /v1/live/status` | Feed health: counts, last update, last error, delay budget, OpenSky credits |
+| `GET /v1/live/status` | Feed health: counts, last update, last error, delay budget, OpenSky credits, open streams |
+| `GET /v1/live/ws` (WebSocket) | **Live stream** of everything near a point: a snapshot, then only changes |
 | `PUT /v1/admin/trains/{number}/delay` | Push a live delay / position for a train (admin) |
 | `PUT /v1/admin/stations/{code}` | Add or fix a station (`Authorization: Bearer $ADMIN_TOKEN`) |
 | `POST /v1/admin/reload` | Reload the in-memory copy from the DB (admin) |
@@ -155,7 +156,7 @@ curl -X POST localhost:8080/v1/position/estimate -H 'Content-Type: application/j
 
 ```
                      ┌─────────────── live hub (memory, 0.5° grid) ───────────────┐
- timetable + delays ─▶ trains   (every train in India, recomputed every 30 s)       │──▶ /v1/live
+ timetable + delays ─▶ trains   (every train in India, recomputed every 30 s)       │──▶ /v1/live, /v1/live/ws
  OpenSky             ─▶ flights  (India sweep + on-demand refresh around requests)  │──▶ /v1/live/bbox
  (next: traffic, events, buses, ships …)                                            │──▶ /v1/live/{kind}/{id}
                      └────────────────────────────────────────────────────────────┘
@@ -171,6 +172,44 @@ without a fix. A new kind only needs a source that calls `hub.Replace` (full sna
 
 ```bash
 curl 'localhost:8080/v1/live?lat=28.654&lon=77.241&radius_km=5&types=train,flight'
+```
+
+### WebSocket stream (`/v1/live/ws`)
+
+Connect, subscribe to an area, get a snapshot, then a `diff` every interval. A diff holds only
+objects that moved (by more than about 1 m), changed (delay, status, …), entered or left.
+Sending `subscribe` again, for example after the user moves or changes range, gives a fresh
+snapshot.
+
+```jsonc
+// client → server
+{"type": "subscribe", "lat": 28.654, "lon": 77.241, "radius_km": 10,
+ "types": ["train", "flight"], "limit": 200, "interval_ms": 2000}
+{"type": "ping"}
+
+// server → client
+{"type": "hello", "protocol": 1, "min_interval_ms": 1000}
+{"type": "snapshot", "seq": 1, "at": "…", "items": [ {…object, "distance_km": 1.1}, … ]}
+{"type": "diff", "seq": 2, "at": "…", "upsert": [ … ], "remove": [{"kind": "flight", "id": "800c1b"}]}
+{"type": "status", "layers": [ … ]}          // every 30 s
+{"type": "pong"} / {"type": "error", "message": "…"}
+```
+
+* Objects have the same shape as in `/v1/live`. `seq` goes up by one per snapshot or diff; if
+  you see a gap, re-subscribe.
+* The fastest interval is `WS_MIN_INTERVAL` (default 1 s). The radius is capped at 200 km and
+  the limit at 500.
+* Subscribing to flights also triggers the on-demand OpenSky refresh for that area.
+* The server pings every 25 s and closes dead connections. Connections are capped by
+  `WS_MAX_CONNS` (HTTP 503 above it).
+* Browser clients are limited by `WS_ORIGINS` when it is set. Native apps send no `Origin`
+  header.
+
+Try it:
+
+```bash
+npx wscat -c ws://localhost:8080/v1/live/ws
+> {"type":"subscribe","lat":28.654,"lon":77.241,"radius_km":5,"types":["train"]}
 ```
 
 ### Live train delays
@@ -257,6 +296,7 @@ Re-seeding keeps coordinates added this way when the source has none.
 | `LIVE_FLIGHTS` | `true` | OpenSky feed on or off |
 | `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` | — | OAuth2 client credentials |
 | `OPENSKY_DAILY_CREDITS` / `OPENSKY_SWEEP_INTERVAL` / `OPENSKY_BBOX` | auto / auto / India | |
+| `WS_MAX_CONNS` / `WS_MIN_INTERVAL` / `WS_ORIGINS` | `1000` / `1s` / any | WebSocket stream limits |
 
 ## Limits
 

@@ -25,6 +25,12 @@
 //	OPENSKY_DAILY_CREDITS   default 400 anonymous / 4000 with credentials
 //	OPENSKY_SWEEP_INTERVAL  default: derived from the credit budget
 //	OPENSKY_BBOX            south,west,north,east (default India)
+//
+// WebSocket stream (GET /v1/live/ws):
+//
+//	WS_MAX_CONNS            default 1000
+//	WS_MIN_INTERVAL         fastest update interval a client may ask for (default 1s)
+//	WS_ORIGINS              comma-separated browser origin patterns (default: any)
 package main
 
 import (
@@ -46,6 +52,7 @@ import (
 	"github.com/dilshadahmad2/nearby-live/backend/internal/live"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/rail"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/seed"
+	"github.com/dilshadahmad2/nearby-live/backend/internal/stream"
 )
 
 func main() {
@@ -174,6 +181,19 @@ func setupLive(ctx context.Context, log *slog.Logger, srv *api.Server, store del
 		srv.Sky = sky
 		go sky.Run(ctx)
 	}
+
+	maxConns, _ := strconv.Atoi(os.Getenv("WS_MAX_CONNS"))
+	var origins []string
+	for _, o := range strings.Split(os.Getenv("WS_ORIGINS"), ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			origins = append(origins, o)
+		}
+	}
+	srv.Stream = &stream.Server{Hub: srv.Hub, Sky: srv.Sky, Log: log, Cfg: stream.Config{
+		MaxConns:       maxConns,
+		MinInterval:    dur("WS_MIN_INTERVAL", time.Second),
+		OriginPatterns: origins,
+	}}
 	return nil
 }
 

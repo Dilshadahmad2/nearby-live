@@ -24,8 +24,8 @@ void main() {
       expect(haversineKm(redFort, indiaGate), closeTo(haversineKm(indiaGate, redFort), 1e-9));
     });
 
-    test('Delhi → Mumbai is about 1150 km', () {
-      expect(haversineKm(const GeoPoint(28.5562, 77.1000), const GeoPoint(19.0896, 72.8656)), closeTo(1148, 10));
+    test('Delhi → Mumbai airports are about 1137 km apart', () {
+      expect(haversineKm(const GeoPoint(28.5562, 77.1000), const GeoPoint(19.0896, 72.8656)), closeTo(1137, 5));
     });
   });
 
@@ -34,7 +34,8 @@ void main() {
       for (final b in [0.0, 45.0, 90.0, 180.0, 270.0]) {
         final p = destinationPoint(redFort, b, 5);
         expect(haversineKm(redFort, p), closeTo(5, 1e-6));
-        expect(bearingDeg(redFort, p), closeTo(b == 0 ? 0 : b, 0.05));
+        final diff = ((bearingDeg(redFort, p) - b + 540) % 360) - 180; // wrap-around safe
+        expect(diff.abs(), lessThan(0.05));
       }
     });
 

@@ -18,6 +18,7 @@ import (
 	"github.com/dilshadahmad2/nearby-live/backend/internal/geo"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/live"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/rail"
+	"github.com/dilshadahmad2/nearby-live/backend/internal/stream"
 )
 
 // IndexLoader reloads the in-memory index from the database.
@@ -41,6 +42,8 @@ type Server struct {
 	Hub *live.Hub
 	// Sky refreshes flights around requests (nil = no flight feed).
 	Sky *live.OpenSky
+	// Stream serves GET /v1/live/ws (created from Hub/Sky when nil).
+	Stream *stream.Server
 }
 
 // New creates a server around an initial index.
@@ -77,6 +80,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/trains/{number}/live", s.trainLive)
 	mux.HandleFunc("POST /v1/position/estimate", s.estimate)
 
+	if s.Stream == nil {
+		s.Stream = &stream.Server{Hub: s.Hub, Sky: s.Sky, Log: s.Log}
+	}
+	mux.Handle("GET /v1/live/ws", s.Stream)
 	mux.HandleFunc("GET /v1/live", s.liveNearby)
 	mux.HandleFunc("GET /v1/live/bbox", s.liveBBox)
 	mux.HandleFunc("GET /v1/live/status", s.liveStatus)
@@ -549,6 +556,9 @@ func (s *Server) liveObject(w http.ResponseWriter, r *http.Request) {
 // liveStatus reports every feed.
 func (s *Server) liveStatus(w http.ResponseWriter, _ *http.Request) {
 	out := map[string]any{"layers": s.Hub.Status(), "delays": s.Delays.Stats()}
+	if s.Stream != nil {
+		out["stream_connections"] = s.Stream.Conns()
+	}
 	if s.Sky != nil {
 		out["opensky"] = s.Sky.Usage()
 	}
