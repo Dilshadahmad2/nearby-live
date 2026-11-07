@@ -1,0 +1,706 @@
+<meta charset="utf-8">
+<title>Nearby Live Preview</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* Layout: 2:3 app stage (real 3D map + HUD + design chrome) on the left, live scenario panel on the right; stacks on phones.
+   Single deliberate dark look, matching the app's night-blue chrome. */
+:root{
+  --page:#060d24; --panel:#0c1736; --line:#1c2b58; --ink:#eaf1ff; --muted:#93a6d1;
+  --cyan:#35e0ff; --blue:#2f7dff; --green:#2fe07a; --amber:#ffb547; --red:#ff4d5e;
+  --violet:#8b5cff; --magenta:#e0359b;
+  --display:"Outfit","Segoe UI",system-ui,sans-serif;
+  color-scheme:dark;
+}
+html,body{background:var(--page);color:var(--ink);font-family:var(--display)}
+*{box-sizing:border-box}
+.page{display:flex;flex-wrap:wrap;gap:28px;justify-content:center;align-items:flex-start;
+  padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.stage-col{flex:1 1 340px;max-width:560px;min-width:0;display:flex;justify-content:center}
+.frame{position:relative;overflow:hidden;border-radius:26px;box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 1px rgba(120,170,255,.25);max-width:100%;background:#0d2147}
+.stage{position:absolute;left:0;top:0;width:512px;height:768px;transform-origin:0 0;user-select:none;overflow:hidden}
+#map{position:absolute;left:0;top:0;width:512px;height:768px}
+#hud{position:absolute;left:0;top:0;width:512px;height:768px;pointer-events:none}
+.abs{position:absolute}
+
+/* minimal MapLibre styles (stylesheets from other hosts are blocked, so these are inlined) */
+.maplibregl-map{position:relative;overflow:hidden}
+.maplibregl-canvas-container,.maplibregl-canvas{position:absolute;left:0;top:0}
+.maplibregl-canvas:focus{outline:none}
+
+.sky{left:0;top:0;width:512px;height:330px;pointer-events:none;
+  background:linear-gradient(180deg,#0631b8 0%,#1d6ff0 30%,rgba(64,160,255,.85) 55%,rgba(120,200,255,.35) 80%,rgba(120,200,255,0) 100%)}
+.sky::after{content:"";position:absolute;right:-40px;top:150px;width:260px;height:180px;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(255,248,220,.95),rgba(255,226,150,.45) 45%,rgba(255,226,150,0))}
+.vig{inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 60%,transparent 55%,rgba(2,10,48,.55) 100%)}
+.fx{inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(160,230,255,.035) 0 1px,transparent 1px 3px)}
+.fx::after{content:"";position:absolute;left:0;right:0;height:90px;top:-90px;background:linear-gradient(180deg,transparent,rgba(120,230,255,.08),transparent);animation:scan 6s linear infinite}
+@keyframes scan{to{transform:translateY(948px)}}
+.loading{inset:0;display:grid;place-items:center;font-size:15px;font-weight:600;color:#bfe9ff;letter-spacing:.04em;pointer-events:none;transition:opacity .6s}
+.loading.done{opacity:0}
+.osm{left:22px;top:751px;font-size:8.5px;color:rgba(255,255,255,.65)}
+
+/* header */
+.appicon{left:24px;top:28px;width:64px;height:64px;border-radius:17px;background:linear-gradient(160deg,#55b4ff,#1352e6);
+  display:grid;place-items:center;box-shadow:0 0 26px rgba(60,160,255,.8),0 8px 22px rgba(10,40,140,.55),inset 0 1px 0 rgba(255,255,255,.45)}
+.title{left:100px;top:20px;font-size:39px;font-weight:800;letter-spacing:-.6px;color:#fff;margin:0;line-height:1.1;text-shadow:0 0 22px rgba(90,200,255,.6),0 3px 12px rgba(0,20,90,.45)}
+.title span{background:linear-gradient(90deg,#5ff0ff,#2fb2ff);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 10px rgba(60,220,255,.85))}
+.subtitle{left:101px;top:68px;font-size:17px;line-height:1.18;color:#e4edff;font-weight:500;margin:0;text-shadow:0 2px 8px rgba(0,20,90,.5)}
+.livepill{left:352px;top:30px;height:28px;padding:0 13px;border-radius:14px;display:flex;align-items:center;gap:7px;
+  background:rgba(8,24,72,.78);border:1px solid rgba(90,170,255,.55);font-size:12.5px;font-weight:600;color:#fff;box-shadow:0 0 14px rgba(60,160,255,.45)}
+.livepill i{width:9px;height:9px;border-radius:50%;background:var(--green);animation:ping 1.8s infinite}
+.livepill.locating i{background:var(--amber);animation:none}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(47,224,122,.7)}70%{box-shadow:0 0 0 7px rgba(47,224,122,0)}100%{box-shadow:0 0 0 0 rgba(47,224,122,0)}}
+.gear{left:466px;top:30px;width:30px;height:30px;border-radius:50%;background:rgba(8,24,72,.78);border:1px solid rgba(90,170,255,.55);display:grid;place-items:center;box-shadow:0 0 14px rgba(60,160,255,.45)}
+.range{left:352px;top:66px;display:flex;align-items:center;gap:6px;height:28px;padding:0 4px 0 12px;border-radius:14px;
+  background:rgba(8,24,72,.85);border:1px solid rgba(53,224,255,.7);box-shadow:0 0 14px rgba(53,224,255,.35);font-size:12px;font-weight:600;color:#bfe9ff}
+.range select{appearance:none;-webkit-appearance:none;background:transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23ffffff' stroke-width='1.6' fill='none'/%3E%3C/svg%3E") no-repeat right 8px center;
+  border:0;color:#fff;font:700 13px var(--display);padding:4px 24px 4px 2px;cursor:pointer}
+.range select:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:8px}
+.range option{background:#0c1736;color:#fff}
+.features{left:15px;top:116px;display:flex}
+.feat{width:65px;display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10.5px;font-weight:500;line-height:1.15;color:#fff;text-align:center;text-shadow:0 1px 6px rgba(0,20,80,.7);position:relative}
+.feat+.feat::before{content:"";position:absolute;left:0;top:4px;height:50px;width:1px;background:rgba(255,255,255,.22)}
+.feat b{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;border:1.5px solid rgba(255,255,255,.75);background:rgba(15,50,150,.35);box-shadow:0 0 12px rgba(90,200,255,.55),inset 0 0 8px rgba(90,200,255,.35)}
+
+/* cards */
+@property --ang{syntax:'<angle>';initial-value:0deg;inherits:false}
+@keyframes sweep{to{--ang:360deg}}
+.card{position:absolute;border-radius:14px;display:flex;align-items:center;gap:8px;color:#fff;padding:8px 10px 8px 8px;
+  backdrop-filter:blur(6px);opacity:0;transform:translateY(10px) scale(.92);transition:opacity .45s ease,transform .6s cubic-bezier(.2,1.5,.4,1);pointer-events:none}
+.card.show{opacity:1;transform:none}
+.card::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(115deg,rgba(255,255,255,.24),rgba(255,255,255,0) 36%,rgba(255,255,255,0) 72%,rgba(255,255,255,.1))}
+.card::after{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1.5px;pointer-events:none;
+  background:conic-gradient(from var(--ang),transparent 0 60%,rgba(255,255,255,.95) 75%,transparent 90%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:sweep 3.2s linear infinite}
+.card .ic{flex:none;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;box-shadow:0 0 0 3px rgba(255,255,255,.12)}
+.card .tx{min-width:0;flex:1}
+.card h4{margin:0;font-size:14.5px;font-weight:700;line-height:1.1}
+.card p{margin:2px 0 0;font-size:10.5px;line-height:1.25;color:rgba(255,255,255,.88)}
+.card .chev{flex:none;opacity:.8}
+.card h4,.card .km,.card .st,.card .when{white-space:nowrap}
+.row{display:flex;gap:6px;align-items:center;margin-top:5px}
+.st{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600;padding:2px 8px 2px 6px;border-radius:7px;background:rgba(0,0,0,.28)}
+.st i{width:7px;height:7px;border-radius:50%;background:var(--green)}
+.km{font-size:12px;font-weight:700;padding:2px 8px;border-radius:7px;font-variant-numeric:tabular-nums;box-shadow:0 0 12px rgba(255,255,255,.18)}
+.c-train{left:36px;top:194px;width:184px;background:linear-gradient(135deg,rgba(18,46,122,.93),rgba(9,26,78,.93))}
+.c-train .ic{background:linear-gradient(160deg,#3e8cff,#1650e0)}
+.c-train .km{background:#1f6fff}
+.c-flight{left:358px;top:140px;width:142px;padding-left:12px;background:linear-gradient(135deg,rgba(104,62,226,.94),rgba(58,30,150,.94))}
+.c-weather{left:348px;top:266px;width:154px;display:block;padding:8px 10px;background:linear-gradient(160deg,rgba(14,34,96,.94),rgba(8,20,64,.94))}
+.c-weather .top{display:flex;align-items:center;gap:6px}
+.c-weather .body{display:flex;gap:8px;margin-top:4px;align-items:center}
+.c-weather .temp{font-size:25px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.c-weather .km{background:#1f6fff;display:inline-block;margin-top:5px}
+.c-weather ul{list-style:none;margin:0;padding:0 0 0 8px;border-left:1px solid rgba(255,255,255,.2);font-size:9.5px;line-height:1.55;color:rgba(255,255,255,.9)}
+.c-traffic{left:33px;top:386px;width:172px;background:linear-gradient(135deg,rgba(214,32,48,.94),rgba(122,10,26,.94))}
+.c-traffic .ic{background:#fff}
+.c-traffic .km{background:#ff2e44}
+.c-event{left:330px;top:438px;width:176px;background:linear-gradient(135deg,rgba(212,34,140,.94),rgba(120,14,92,.94))}
+.c-event .ic{background:#fff}
+.c-event .km{background:#ff2e8f}
+.c-event .when{font-size:9.5px;font-weight:600;padding:2px 7px;border-radius:7px;background:rgba(0,0,0,.3)}
+.c-train.show{box-shadow:0 0 0 1px rgba(120,200,255,.9),0 0 26px rgba(47,125,255,.8),0 12px 30px rgba(0,10,40,.5)}
+.c-flight.show{box-shadow:0 0 0 1px rgba(190,160,255,.9),0 0 26px rgba(123,69,255,.85),0 12px 30px rgba(20,0,60,.5)}
+.c-weather.show{box-shadow:0 0 0 1px rgba(120,210,255,.9),0 0 26px rgba(47,170,255,.75),0 12px 30px rgba(0,10,40,.5)}
+.c-traffic.show{box-shadow:0 0 0 1px rgba(255,150,160,.9),0 0 26px rgba(255,46,68,.85),0 12px 30px rgba(60,0,10,.5)}
+.c-event.show{box-shadow:0 0 0 1px rgba(255,150,210,.9),0 0 26px rgba(255,46,143,.85),0 12px 30px rgba(60,0,40,.5)}
+
+.pin{position:absolute;left:0;top:0;width:30px;height:40px;opacity:0;transition:opacity .35s;pointer-events:none;filter:drop-shadow(0 0 9px rgba(90,200,255,.75)) drop-shadow(0 4px 6px rgba(0,0,0,.35))}
+.pin.show{opacity:1}
+.pin .inner{position:absolute;inset:0;transform:scale(0);transform-origin:50% 100%;transition:transform .5s cubic-bezier(.2,1.6,.4,1)}
+.pin.show .inner{transform:scale(1)}
+.pin svg.shape{position:absolute;inset:0}
+.pin .pi{position:absolute;left:0;top:4px;width:30px;height:22px;display:grid;place-items:center}
+.badge{position:absolute;left:0;top:0;font-size:12px;font-weight:700;padding:2px 8px;border-radius:7px;color:#fff;font-variant-numeric:tabular-nums;opacity:0;transition:opacity .4s;background:#7b45ff;box-shadow:0 0 14px rgba(140,90,255,.7)}
+.badge.show{opacity:1}
+.you{left:0;top:0;padding:3px 14px;border-radius:12px;background:rgba(8,20,55,.85);border:1px solid rgba(90,180,255,.5);font-size:15px;font-weight:600;color:#fff;box-shadow:0 0 16px rgba(60,170,255,.7)}
+
+/* plane, weather and stage-light overlays (positioned from the map every frame) */
+.plane{left:0;top:0;width:118px;height:118px;margin:-59px 0 0 -59px;opacity:0;transition:opacity .4s;pointer-events:none;filter:drop-shadow(0 0 10px rgba(160,120,255,.55))}
+.plane.show{opacity:1}
+.plane .navL{animation:blink 1.1s infinite}.plane .navR{animation:blink 1.1s infinite .55s}.plane .strobe{animation:strobe 1.4s infinite}
+.plane .exh{animation:flicker .12s infinite alternate}
+@keyframes blink{0%,60%{opacity:1}61%,100%{opacity:.15}}
+@keyframes strobe{0%,8%{opacity:1}9%,100%{opacity:0}}
+@keyframes flicker{to{opacity:.55}}
+.pshadow{left:0;top:0;width:70px;height:70px;margin:-35px 0 0 -35px;opacity:0;transition:opacity .4s;pointer-events:none;filter:blur(3px)}
+.pshadow.show{opacity:.45}
+.wx{left:0;top:0;width:150px;height:150px;margin:-140px 0 0 -75px;pointer-events:none;opacity:0;transition:opacity .6s}
+.wx>svg{transform:scale(.4);transform-origin:50% 90%;transition:transform .9s cubic-bezier(.2,1.5,.4,1)}
+.wx.show{opacity:1}.wx.show>svg{transform:scale(1)}
+.wx .rays{transform-origin:58px 56px;animation:spin 14s linear infinite}
+.wx .cl{animation:bob 4s ease-in-out infinite}
+.wx .drop{animation:rain 1s linear infinite}
+.wx .ring{transform-origin:75px 138px;animation:pulse 2.2s ease-out infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes bob{50%{transform:translateY(-4px)}}
+@keyframes rain{0%{transform:translateY(-6px);opacity:0}20%{opacity:1}100%{transform:translateY(22px);opacity:0}}
+@keyframes pulse{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.6);opacity:0}}
+.lights{left:0;top:0;width:0;height:0;pointer-events:none;opacity:0;transition:opacity .6s;mix-blend-mode:screen}
+.lights.show{opacity:1}
+.lights i{position:absolute;left:-14px;bottom:0;width:28px;height:170px;transform-origin:50% 100%;border-radius:50% 50% 0 0;filter:blur(2px);
+  background:linear-gradient(0deg,var(--c),transparent 92%);clip-path:polygon(42% 100%,58% 100%,100% 0,0 0);animation:beam 2.6s ease-in-out infinite alternate}
+.lights i:nth-child(1){--c:rgba(255,60,200,.75);--a:-38deg;--b:-8deg}
+.lights i:nth-child(2){--c:rgba(60,220,255,.7);--a:12deg;--b:-20deg;animation-delay:-.8s}
+.lights i:nth-child(3){--c:rgba(255,220,70,.65);--a:-14deg;--b:30deg;animation-delay:-1.6s}
+.lights i:nth-child(4){--c:rgba(150,90,255,.75);--a:36deg;--b:6deg;animation-delay:-2.2s}
+@keyframes beam{from{transform:rotate(var(--a))}to{transform:rotate(var(--b))}}
+
+.nav{left:18px;top:677px;width:477px;height:70px;border-radius:20px;display:flex;align-items:center;justify-content:space-around;
+  background:rgba(8,20,55,.9);border:1px solid rgba(90,150,255,.35);box-shadow:0 0 30px rgba(40,120,255,.35),0 -6px 30px rgba(0,10,40,.5);backdrop-filter:blur(8px)}
+.nav::before{content:"";position:absolute;top:-1px;left:18%;right:18%;height:2px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);box-shadow:0 0 12px var(--cyan)}
+.nav div{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;font-weight:500;color:#dce6ff;position:relative;width:80px}
+.nav div.on{font-weight:700;color:#fff}
+.nav div.on b{background:#2f7dff;box-shadow:0 0 16px rgba(47,125,255,.8)}
+.nav div.on::after{content:"";position:absolute;bottom:-11px;width:66px;height:3px;border-radius:3px;background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+.nav b{width:32px;height:32px;border-radius:50%;display:grid;place-items:center}
+
+/* side panel */
+.side{flex:1 1 300px;max-width:400px;min-width:0;display:flex;flex-direction:column;gap:18px}
+.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);font-weight:600;margin:0}
+.side h1{font-size:28px;line-height:1.15;margin:4px 0 0;font-weight:700;text-wrap:balance}
+.side p.lede{margin:0;color:var(--muted);font-size:14.5px;line-height:1.55}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:600 13.5px var(--display);color:var(--ink);background:#15275a;border:1px solid #2a3f80;border-radius:10px;padding:8px 14px;cursor:pointer}
+button:hover{background:#1c3272}
+button:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+button.primary{background:var(--blue);border-color:var(--blue)}
+.timeline{margin-top:12px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.bar{flex:1;height:6px;border-radius:3px;background:#1a2a5a;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--cyan))}
+.objs{display:flex;flex-direction:column;gap:2px}
+.obj{display:grid;grid-template-columns:12px 1fr auto auto;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+.obj:last-child{border-bottom:0}
+.obj .sw{width:10px;height:10px;border-radius:3px}
+.obj .d{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
+.chip{font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.chip.in{background:rgba(47,224,122,.15);color:var(--green)}
+.chip.out{background:rgba(255,181,71,.13);color:var(--amber)}
+.chip.none{background:rgba(147,166,209,.12);color:var(--muted)}
+.log{list-style:none;margin:0;padding:0;font-size:13px;line-height:1.5;color:var(--muted);min-height:116px}
+.log li{display:flex;gap:10px}
+.log time{color:var(--cyan);font-variant-numeric:tabular-nums;flex:none}
+.log li:first-child{color:var(--ink)}
+.hint{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0}
+h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;font-weight:600}
+@media (prefers-reduced-motion:reduce){.card,.pin,.badge{transition-duration:.01s}.card::after,.fx::after{animation:none}}
+</style>
+
+<div class="page">
+  <div class="stage-col">
+    <div class="frame" id="frame">
+      <div class="stage" id="stage">
+        <div id="map"></div>
+        <div class="abs sky"></div>
+        <div class="abs vig"></div>
+        <div class="abs lights" id="lights"><i></i><i></i><i></i><i></i></div>
+        <div class="abs pshadow" id="pshadow"><svg viewBox="0 0 200 200" width="70" height="70"><path d="M100 14 C108 14 110 30 110 44 L110 78 L182 118 L182 128 L110 108 L110 160 L130 176 L130 182 L100 175 L70 182 L70 176 L90 160 L90 108 L18 128 L18 118 L90 78 L90 44 C90 30 92 14 100 14Z" fill="#020a26"/></svg></div>
+        <canvas id="hud"></canvas>
+        <div class="abs wx" id="wx">
+          <svg viewBox="0 0 150 150" width="150" height="150">
+            <defs>
+              <radialGradient id="sunG" cx=".4" cy=".35"><stop offset="0" stop-color="#fff7b0"/><stop offset=".55" stop-color="#ffc21a"/><stop offset="1" stop-color="#ff8a00"/></radialGradient>
+              <radialGradient id="sunGlow"><stop offset="0" stop-color="rgba(255,220,90,.85)"/><stop offset="1" stop-color="rgba(255,220,90,0)"/></radialGradient>
+              <linearGradient id="cloudG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".7" stop-color="#e3f1ff"/><stop offset="1" stop-color="#a9cdf5"/></linearGradient>
+              <linearGradient id="beamG" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="rgba(60,220,255,.7)"/><stop offset="1" stop-color="rgba(60,220,255,0)"/></linearGradient>
+            </defs>
+            <path d="M58 138 L92 138 L104 70 L46 70Z" fill="url(#beamG)"/>
+            <ellipse cx="75" cy="138" rx="30" ry="9" fill="rgba(80,220,255,.25)" stroke="#5fe8ff" stroke-width="1.5"/>
+            <ellipse class="ring" cx="75" cy="138" rx="30" ry="9" fill="none" stroke="#9ff3ff" stroke-width="1.5"/>
+            <circle cx="58" cy="56" r="40" fill="url(#sunGlow)"/>
+            <g class="rays" stroke="#ffd23f" stroke-width="3.2" stroke-linecap="round">
+              <path d="M58 22v-8M58 98v-8M24 56h-8M100 56h-8M34 32l-6-6M88 86l-6-6M34 80l-6 6M88 26l-6 6"/>
+            </g>
+            <circle cx="58" cy="56" r="21" fill="url(#sunG)"/>
+            <g class="cl">
+              <ellipse cx="82" cy="94" rx="44" ry="9" fill="rgba(110,160,230,.5)"/>
+              <g fill="url(#cloudG)">
+                <circle cx="62" cy="80" r="16"/><circle cx="84" cy="68" r="22"/><circle cx="106" cy="80" r="16"/><circle cx="44" cy="88" r="10"/><circle cx="120" cy="88" r="10"/>
+                <rect x="40" y="78" width="88" height="18" rx="9"/>
+              </g>
+              <path d="M70 62 a20 20 0 0 1 26 -6" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" opacity=".9"/>
+            </g>
+            <g fill="#5fd0ff">
+              <path class="drop" d="M64 104 l-3 7 a3 3 0 0 0 6 0z"/>
+              <path class="drop" style="animation-delay:-.35s" d="M84 104 l-3 7 a3 3 0 0 0 6 0z"/>
+              <path class="drop" style="animation-delay:-.7s" d="M104 104 l-3 7 a3 3 0 0 0 6 0z"/>
+            </g>
+          </svg>
+        </div>
+        <div class="abs plane" id="plane">
+          <svg viewBox="0 0 200 200" width="118" height="118">
+            <defs>
+              <linearGradient id="fus" x1="0" x2="1"><stop offset="0" stop-color="#c9d4e6"/><stop offset=".5" stop-color="#ffffff"/><stop offset="1" stop-color="#b3c0d6"/></linearGradient>
+              <linearGradient id="wingG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f1f5fb"/><stop offset="1" stop-color="#9fb1c9"/></linearGradient>
+              <linearGradient id="liv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff3d7f"/><stop offset=".5" stop-color="#a23bff"/><stop offset="1" stop-color="#2f7dff"/></linearGradient>
+              <radialGradient id="exG"><stop offset="0" stop-color="#fff2c0"/><stop offset=".5" stop-color="#ffa53a"/><stop offset="1" stop-color="rgba(255,120,40,0)"/></radialGradient>
+            </defs>
+            <ellipse class="exh" cx="60.5" cy="121" rx="6" ry="9" fill="url(#exG)"/>
+            <ellipse class="exh" cx="139.5" cy="121" rx="6" ry="9" fill="url(#exG)"/>
+            <path d="M100 76 L16 118 L16 129 L100 108 L184 129 L184 118 Z" fill="url(#wingG)" stroke="#7f8fa8" stroke-width=".8"/>
+            <path d="M16 118 L32 110 L32 125 L16 129Z" fill="url(#liv)"/><path d="M184 118 L168 110 L168 125 L184 129Z" fill="url(#liv)"/>
+            <path d="M40 106 L100 82 L160 106" stroke="rgba(255,255,255,.7)" stroke-width="1.2" fill="none"/>
+            <rect x="56" y="94" width="9" height="22" rx="4.5" fill="#4b5b78"/><rect x="135" y="94" width="9" height="22" rx="4.5" fill="#4b5b78"/>
+            <rect x="57.5" y="94" width="6" height="4" rx="2" fill="#a9b8d0"/><rect x="136.5" y="94" width="6" height="4" rx="2" fill="#a9b8d0"/>
+            <path d="M100 158 L68 176 L68 183 L100 175 L132 183 L132 176Z" fill="url(#wingG)" stroke="#7f8fa8" stroke-width=".8"/>
+            <path d="M100 14 C108 14 110 30 110 44 L110 160 C110 174 104 186 100 191 C96 186 90 174 90 160 L90 44 C90 30 92 14 100 14Z" fill="url(#fus)" stroke="#8796ae" stroke-width=".8"/>
+            <path d="M97 42 L97 172 Q100 182 103 172 L103 42Z" fill="url(#liv)"/>
+            <path d="M93.5 27 Q100 19 106.5 27 L105.5 33 Q100 29 94.5 33Z" fill="#14204a"/>
+            <path d="M98 148 L100 189 L102 148Z" fill="#7b2ff7"/>
+            <circle class="navL" cx="16" cy="124" r="3.4" fill="#ff3b3b"/><circle class="navR" cx="184" cy="124" r="3.4" fill="#2bff88"/>
+            <circle class="strobe" cx="100" cy="62" r="3" fill="#ffffff"/>
+          </svg>
+        </div>
+        <div class="abs fx"></div>
+        <div class="abs loading" id="loading">Loading 3D city…</div>
+
+        <div class="abs appicon" data-icon="pinWhite"></div>
+        <h1 class="abs title">Nearby <span>Live</span></h1>
+        <p class="abs subtitle">Everything around you,<br>in real time</p>
+        <div class="abs livepill locating" id="live"><i></i><span id="liveText">Locating…</span></div>
+        <div class="abs gear" data-icon="gear"></div>
+        <label class="abs range" for="range">Range
+          <select id="range">
+            <option value="2">2 km</option>
+            <option value="5" selected>5 km</option>
+            <option value="10">10 km</option>
+            <option value="50">50 km</option>
+          </select>
+        </label>
+        <div class="abs features">
+          <div class="feat"><b data-icon="bolt"></b>Real-time<br>Updates</div>
+          <div class="feat"><b data-icon="pin"></b>Everything<br>Nearby</div>
+          <div class="feat"><b data-icon="globe"></b>City to Global<br>View</div>
+          <div class="feat"><b data-icon="bell"></b>Alerts &amp;<br>Notifications</div>
+        </div>
+
+        <div class="pin" id="pinTrain" data-color="#1f6fff" data-glyph="train"></div>
+        <div class="pin" id="pinFlight" data-color="#7b45ff" data-glyph="plane"></div>
+        <div class="pin" id="pinTraffic" data-color="#ff2e44" data-glyph="car"></div>
+        <div class="pin" id="pinEvent" data-color="#ff2e8f" data-glyph="music"></div>
+        <div class="pin show" id="pinYou" data-color="#2f7dff" data-glyph="dot"></div>
+        <div class="badge" id="flightKm">4.8 km</div>
+
+        <div class="card c-flight" id="cardFlight">
+          <div class="tx"><h4>Flight</h4><p>AI138 (DEL → BOM)</p><div class="row"><span class="st"><i></i>In Air</span></div></div>
+        </div>
+        <div class="card c-train" id="cardTrain">
+          <div class="ic" data-icon="trainW"></div>
+          <div class="tx"><h4>Train</h4><p>Rajdhani Express<br>(NDLS → BPL)</p>
+            <div class="row"><span class="st"><i></i>Moving</span><span class="km" id="trainKm">2.3 km</span></div></div>
+          <div class="chev" data-icon="chev"></div>
+        </div>
+        <div class="card c-weather" id="cardWeather">
+          <div class="top"><span data-icon="sunCloud"></span><div class="tx"><h4>Weather</h4><p>Partly Cloudy</p></div><div class="chev" data-icon="chev"></div></div>
+          <div class="body">
+            <div><div class="temp">28°C</div><span class="km">0 km</span></div>
+            <ul><li>Humidity 62%</li><li>Wind 12 km/h</li><li>Rain 10%</li></ul>
+          </div>
+        </div>
+        <div class="card c-traffic" id="cardTraffic">
+          <div class="ic" data-icon="carRed"></div>
+          <div class="tx"><h4>Road Traffic</h4><p>Heavy · Ring Road</p><div class="row"><span class="km" id="trafficKm">1.2 km</span></div></div>
+          <div class="chev" data-icon="chev"></div>
+        </div>
+        <div class="card c-event" id="cardEvent">
+          <div class="ic" data-icon="calPink"></div>
+          <div class="tx"><h4>Events</h4><p>Music Fest 2025</p><div class="row"><span class="km" id="eventKm">3.6 km</span><span class="when">Today, 5 PM</span></div></div>
+          <div class="chev" data-icon="chev"></div>
+        </div>
+
+        <div class="abs you" id="youLabel">You</div>
+        <div class="abs osm">Map data © OpenStreetMap contributors</div>
+
+        <div class="abs nav">
+          <div class="on"><b data-icon="pinWhite"></b>Nearby</div>
+          <div><b data-icon="train"></b>Trains</div>
+          <div><b data-icon="car"></b>Traffic</div>
+          <div><b data-icon="cloud"></b>Weather</div>
+          <div><b data-icon="cal"></b>Events</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="side">
+    <div>
+      <p class="eyebrow">Nearby Live · real map preview</p>
+      <h1>Objects appear only when they come within your range</h1>
+    </div>
+    <p class="lede">This is a real 3D map of Old Delhi built from OpenStreetMap: Red Fort, the Yamuna and Ring Road. The train runs on the real railway line and the cars drive on the real roads. Each object animates in when its distance drops inside the range picked at the top, and animates out when it leaves.</p>
+
+    <div class="box">
+      <div class="controls">
+        <button class="primary" id="play">Pause</button>
+        <button id="restart">Restart</button>
+        <button id="speed">Speed 1×</button>
+      </div>
+      <div class="timeline"><span id="clock">0:00</span><div class="bar"><i id="prog"></i></div><span>0:40</span></div>
+    </div>
+
+    <div class="box">
+      <h2>Live distances</h2>
+      <div class="objs" id="objs"></div>
+    </div>
+
+    <div class="box">
+      <h2>What just happened</h2>
+      <ul class="log" id="log"></ul>
+    </div>
+
+    <p class="hint">Train and flight distances follow a simulated 40-second scenario; traffic and event distances are measured on the map. In the app, the map uses free vector tiles everywhere, objects sit at their real GPS positions, and the camera zooms to fit the selected range.</p>
+  </aside>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
+<script>
+(function(){
+const W=512,H=768,LOOP=40;
+const $=s=>document.querySelector(s);
+const CITY=__CITY__;
+
+/* ---------- icons ---------- */
+const P={
+  pin:'<path d="M12 21s-7-6.4-7-11a7 7 0 0 1 14 0c0 4.6-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+  train:'<rect x="5" y="3" width="14" height="13" rx="3"/><path d="M5 10h14M8 19l-2 2M16 19l2 2"/><circle cx="9" cy="13" r=".6"/><circle cx="15" cy="13" r=".6"/>',
+  car:'<path d="M5 13l1.6-4.4A2 2 0 0 1 8.5 7.3h7a2 2 0 0 1 1.9 1.3L19 13v4H5z"/><circle cx="8.5" cy="17" r="1.5"/><circle cx="15.5" cy="17" r="1.5"/>',
+  cloud:'<path d="M7 18h10a4 4 0 0 0 .3-8A6 6 0 0 0 6 11.3 3.4 3.4 0 0 0 7 18z"/><path d="M18 3.5v1.5M21 6l-1 1M15 6l1 1"/>',
+  cal:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4M8 14h1M12 14h1M16 14h1M8 17h1M12 17h1"/>',
+  bolt:'<path d="M13 2 4.5 14H11l-1 8 8.5-12H12z"/>',
+  globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/>',
+  bell:'<path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  chev:'<path d="M9 6l6 6-6 6"/>',
+  gear:'<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>'
+};
+function svg(name,size,color,sw){return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="${sw||1.8}" stroke-linecap="round" stroke-linejoin="round">${P[name]}</svg>`}
+const special={
+  pinWhite:()=>`<svg width="34" height="34" viewBox="0 0 24 24"><path d="M12 22s-7.5-6.8-7.5-12a7.5 7.5 0 0 1 15 0c0 5.2-7.5 12-7.5 12z" fill="#fff"/><circle cx="12" cy="9.8" r="3" fill="#1f63ee"/></svg>`,
+  trainW:()=>svg('train',22,'#fff',2), carRed:()=>svg('car',22,'#ff2e44',2.2), calPink:()=>svg('cal',21,'#e0359b',2.2),
+  chev:()=>svg('chev',16,'#fff',2.2), gear:()=>svg('gear',17,'#fff',2),
+  sunCloud:()=>`<svg width="38" height="30" viewBox="0 0 38 30"><circle cx="14" cy="12" r="8" fill="#ffc928"/><g fill="#fff"><circle cx="18" cy="21" r="7"/><circle cx="26" cy="18" r="8"/><circle cx="32" cy="22" r="5.5"/><rect x="14" y="20" width="22" height="8" rx="4"/></g></svg>`
+};
+document.querySelectorAll('[data-icon]').forEach(el=>{const n=el.dataset.icon;el.innerHTML=special[n]?special[n]():svg(n,el.closest('.nav')?22:15,'#fff',1.9)});
+const glyph={
+  train:svg('train',15,'#fff',2.2), car:svg('car',16,'#fff',2.2),
+  music:'<svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><path d="M9 18V5l11-2v13" fill="none" stroke="#fff" stroke-width="2.2"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>',
+  plane:'<svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M21 15.5v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0v5l-8 5v2l8-2.5V18l-2 1.5V21l3.5-1 3.5 1v-1.5L13 18v-4.5z"/></svg>',
+  dot:'<svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#fff"/></svg>'
+};
+document.querySelectorAll('.pin').forEach(el=>{el.innerHTML=`<div class="inner"><svg class="shape" viewBox="0 0 30 40" width="30" height="40"><path d="M15 39C15 39 2 24.5 2 15a13 13 0 1 1 26 0c0 9.5-13 24-13 24z" fill="${el.dataset.color}" stroke="rgba(255,255,255,.85)" stroke-width="1.6"/></svg><div class="pi">${glyph[el.dataset.glyph]}</div></div>`});
+
+/* ---------- geo helpers (local metres around the user) ---------- */
+const USER=[77.2410,28.6540], CENTER=[77.2436,28.6606];
+const MLAT=111320, MLON=111320*Math.cos(USER[1]*Math.PI/180);
+const toM=p=>[(p[0]-USER[0])*MLON,(p[1]-USER[1])*MLAT];
+const toLL=m=>[USER[0]+m[0]/MLON,USER[1]+m[1]/MLAT];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), lerp=(a,b,f)=>a+(b-a)*f;
+function line(coords){const pts=[];let s=0,prev=null;for(const c of coords){const m=toM(c);if(prev)s+=Math.hypot(m[0]-prev[0],m[1]-prev[1]);pts.push({x:m[0],y:m[1],s});prev=m}return{pts,len:s}}
+function at(L,s){const P=L.pts;s=clamp(s,0,L.len);let lo=0,hi=P.length-1;while(hi-lo>1){const m=(lo+hi)>>1;if(P[m].s<s)lo=m;else hi=m}const a=P[lo],b=P[hi],f=(s-a.s)/((b.s-a.s)||1);return{x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f,a:Math.atan2(b.y-a.y,b.x-a.x)}}
+// polygon strip along a line between s0 and s1, centre offset o, half-width tapering w0 -> w1
+function ribbon(L,s0,s1,w0,w1,o){o=o||0;const n=Math.max(2,Math.ceil((s1-s0)/14)),left=[],right=[];
+  for(let i=0;i<=n;i++){const s=lerp(s0,s1,i/n),p=at(L,s),w=lerp(w0,w1,i/n),nx=-Math.sin(p.a),ny=Math.cos(p.a);
+    left.push(toLL([p.x+nx*(o+w),p.y+ny*(o+w)]));right.push(toLL([p.x+nx*(o-w),p.y+ny*(o-w)]))}
+  const ring=left.concat(right.reverse());ring.push(ring[0]);return ring}
+function rect(cx,cy,w,h){const r=[[cx-w/2,cy-h/2],[cx+w/2,cy-h/2],[cx+w/2,cy+h/2],[cx-w/2,cy+h/2],[cx-w/2,cy-h/2]];return r.map(toLL)}
+const F=(ring,c,b,h)=>({type:'Feature',properties:{c,b,h},geometry:{type:'Polygon',coordinates:[ring]}});
+const FC=f=>({type:'FeatureCollection',features:f});
+function hav(a,b){const R=6371,dLat=(b[1]-a[1])*Math.PI/180,dLon=(b[0]-a[0])*Math.PI/180,la=a[1]*Math.PI/180,lb=b[1]*Math.PI/180;const x=Math.sin(dLat/2)**2+Math.cos(la)*Math.cos(lb)*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.sqrt(x))}
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+const TRAIN=line(CITY.train.slice().reverse());
+const ROUTES=CITY.routes.map(line);
+const EVENT=[77.2468,28.6513];
+const PLANE_A=[-110,322],PLANE_B=[640,78];
+let TRAIN_TARGET=0;{let best=1e9;const tx=toM([77.2462,0])[0];for(const p of TRAIN.pts){const d=Math.abs(p.x-tx);if(d<best){best=d;TRAIN_TARGET=p.s}}}
+// nearest point of the traffic routes to the user = where the jam is shown
+let JAM={r:0,s:0,d:1e9};ROUTES.forEach((L,r)=>L.pts.forEach(p=>{const d=Math.hypot(p.x,p.y);if(d<JAM.d)JAM={r,s:p.s,d}}));
+const JAM_KM=Math.round(JAM.d/100)/10, EVENT_KM=Math.round(hav(USER,EVENT)*10)/10;
+$('#trafficKm').textContent=JAM_KM+' km';$('#eventKm').textContent=EVENT_KM+' km';
+
+/* ---------- static 3D layers ---------- */
+function heightColor(){return ['interpolate',['linear'],['get','h'],0,'#1e5bff',12,'#2fb7ff',24,'#7c6bff',40,'#d35bff',70,'#ff5fa8',110,'#ffc23d']}
+function staticData(){
+  const b=CITY.b.map(([h,c])=>({type:'Feature',properties:{h:Math.round(h*1.5)},geometry:{type:'Polygon',coordinates:[c[0][0]===c[c.length-1][0]&&c[0][1]===c[c.length-1][1]?c:c.concat([c[0]])]}}));
+  const poly=a=>FC(a.map(c=>({type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:[c[0][0]===c[c.length-1][0]?c:c.concat([c[0]])]}})));
+  const roads=FC(CITY.r.map(([k,c])=>({type:'Feature',properties:{k},geometry:{type:'LineString',coordinates:c}})));
+  const rail3d=[];
+  rail3d.push(F(ribbon(TRAIN,0,TRAIN.len,18,18),'#c9d4f2',9,16));
+  rail3d.push(F(ribbon(TRAIN,0,TRAIN.len,2.2,2.2,17.5),'#22e3ff',16,18));
+  rail3d.push(F(ribbon(TRAIN,0,TRAIN.len,2.2,2.2,-17.5),'#22e3ff',16,18));
+  for(let s=40;s<TRAIN.len;s+=110){const p=at(TRAIN,s);rail3d.push(F(rect(p.x,p.y,12,12),'#6b7a99',0,9))}
+  const grid=[];for(let i=-30;i<=30;i++){const v=i*150;grid.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:[toLL([v,-4500]),toLL([v,4500])]}});grid.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:[toLL([-4500,v]),toLL([4500,v])]}})}
+  const flow=FC(ROUTES.map((L,i)=>({type:'Feature',properties:{i},geometry:{type:'LineString',coordinates:L.pts.map(p=>toLL([p.x,p.y]))}})));
+  return {b:FC(b),water:poly(CITY.w),green:poly(CITY.g),roads,rail3d:FC(rail3d),grid:FC(grid),flow};
+}
+const CROWD=(()=>{const R=rng(5),f=[],e=toM(EVENT),cols=['#ffffff','#ffe14d','#ff4fd8','#35e0ff','#9b7bff','#ff6b6b'];
+  for(let i=0;i<190;i++){const a=R()*Math.PI*2,r=Math.sqrt(R());f.push({type:'Feature',properties:{c:cols[(R()*cols.length)|0]},geometry:{type:'Point',coordinates:toLL([e[0]+Math.cos(a)*r*85,e[1]-45+Math.sin(a)*r*40])}})}return FC(f)})();
+
+// Satellite mode (local preview only: published pages can't load imagery tiles)
+const SAT=!!window.NL_SATELLITE;
+function satellite(style){
+  style.sources.sat={type:'raster',tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256,maxzoom:19};
+  const L=style.layers,byId=id=>L.find(l=>l.id===id);
+  L.splice(1,0,{id:'sat',type:'raster',source:'sat',paint:{'raster-saturation':.25,'raster-contrast':.12,'raster-brightness-max':.95}});
+  byId('grid').paint['line-opacity']=.07;
+  byId('green').paint['fill-opacity']=0;byId('green-edge').paint['line-opacity']=.3;
+  byId('water').paint['fill-opacity']=.2;
+  byId('road-glow').paint['line-opacity']=.3;
+  byId('road').paint['line-width']=['match',['get','k'],3,2.4,2,1.8,1,1.2,.8];byId('road').paint['line-opacity']=.75;
+  byId('bld').paint['fill-extrusion-opacity']=.5;
+  return style;
+}
+if(SAT) $('.osm').textContent='Imagery © Esri, Maxar, Earthstar Geographics · Map data © OpenStreetMap contributors';
+
+function makeStyle(){
+  const d=staticData();
+  return {version:8,sources:{
+      grid:{type:'geojson',data:d.grid},green:{type:'geojson',data:d.green},water:{type:'geojson',data:d.water},
+      roads:{type:'geojson',data:d.roads},flow:{type:'geojson',data:d.flow},rail3d:{type:'geojson',data:d.rail3d},
+      bld:{type:'geojson',data:d.b},movers:{type:'geojson',data:FC([])},crowd:{type:'geojson',data:CROWD}},
+    layers:[
+      {id:'bg',type:'background',paint:{'background-color':'#0f2a5c'}},
+      {id:'grid',type:'line',source:'grid',paint:{'line-color':'#5fdcff','line-opacity':.13,'line-width':1}},
+      {id:'green',type:'fill',source:'green',paint:{'fill-color':'#19b25e','fill-opacity':.9}},
+      {id:'green-edge',type:'line',source:'green',paint:{'line-color':'#6dffa8','line-opacity':.55,'line-width':1.2}},
+      {id:'water',type:'fill',source:'water',paint:{'fill-color':'#1aa9ff'}},
+      {id:'water-glow',type:'line',source:'water',paint:{'line-color':'#8ff0ff','line-width':3,'line-blur':2,'line-opacity':.9}},
+      {id:'road-glow',type:'line',source:'roads',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':['match',['get','k'],3,'#ffb000',2,'#ff4fa0',1,'#7f8cff','#4d7bd8'],'line-width':['match',['get','k'],3,16,2,12,1,9,6],'line-blur':6,'line-opacity':.45}},
+      {id:'road',type:'line',source:'roads',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':['match',['get','k'],3,'#ffd166',2,'#ff8ac2',1,'#aab6ff','#7aa2f0'],'line-width':['match',['get','k'],3,4.5,2,3.2,1,2.2,1.4]}},
+      {id:'flow-glow',type:'line',source:'flow',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':['match',['%',['get','i'],2],0,'#ff2d2d','#ff9a1f'],'line-width':14,'line-blur':7,'line-opacity':0}},
+      {id:'flow',type:'line',source:'flow',layout:{'line-cap':'butt','line-join':'round'},paint:{'line-color':'#ffe3a8','line-width':2.4,'line-opacity':0,'line-dasharray':[0,4,3]}},
+      {id:'crowd',type:'circle',source:'crowd',paint:{'circle-color':['get','c'],'circle-radius':2.2,'circle-opacity':0,'circle-blur':.2}},
+      {id:'rail3d',type:'fill-extrusion',source:'rail3d',paint:{'fill-extrusion-color':['get','c'],'fill-extrusion-base':['get','b'],'fill-extrusion-height':['get','h'],'fill-extrusion-opacity':1}},
+      {id:'bld',type:'fill-extrusion',source:'bld',paint:{'fill-extrusion-color':heightColor(),'fill-extrusion-height':['get','h'],'fill-extrusion-base':0,'fill-extrusion-opacity':.93,'fill-extrusion-vertical-gradient':true}},
+      {id:'movers',type:'fill-extrusion',source:'movers',paint:{'fill-extrusion-color':['get','c'],'fill-extrusion-base':['get','b'],'fill-extrusion-height':['get','h'],'fill-extrusion-opacity':1,'fill-extrusion-vertical-gradient':true}}
+    ]};
+}
+
+/* ---------- moving 3D models ---------- */
+const CAR_L=150,CAR_G=16,CARS=6;
+function trainModel(head,out){
+  for(let i=0;i<CARS;i++){
+    const s1=head-i*(CAR_L+CAR_G),s0=s1-CAR_L;if(s1<=0||s0>=TRAIN.len)continue;
+    const a=Math.max(0,s0),b=Math.min(TRAIN.len,s1),end=i===0||i===CARS-1;
+    const body=end?'#ff2e63':'#1f4fe0';
+    if(i===0&&b-a>40){
+      out.push(F(ribbon(TRAIN,a,b-50,15,15),body,18,40),F(ribbon(TRAIN,b-50,b,15,5),body,18,37));
+      out.push(F(ribbon(TRAIN,a,b-50,13,13),'#f7f9ff',46,54),F(ribbon(TRAIN,b-50,b,13,4),'#f7f9ff',37,45));
+      out.push(F(ribbon(TRAIN,a,b-50,15,15),'#0d1840',40,46));
+    }else{
+      out.push(F(ribbon(TRAIN,a,b,15,15),body,18,40),F(ribbon(TRAIN,a,b,15,15),'#0d1840',40,46),F(ribbon(TRAIN,a,b,13,13),'#f7f9ff',46,54));
+    }
+    out.push(F(ribbon(TRAIN,a,b,16.5,16.5),'#38e8ff',35,38));
+  }
+}
+const CAR_COLS=['#ff3b4a','#ffb020','#ffe14d','#2fe07a','#2f7dff','#a855f7','#ff4fd8','#f8fafc','#18d4ff'];
+const TRAFFIC=(()=>{const R=rng(9),cars=[];ROUTES.forEach((L,ri)=>{const n=Math.round(L.len/160);for(let i=0;i<n;i++){const dir=R()<.5?1:-1;cars.push({L,s:R()*L.len,dir,o:dir*(R()<.5?9:20),v:(45+R()*40)*dir,col:CAR_COLS[(R()*CAR_COLS.length)|0],bus:R()<.1})}});return cars})();
+function stepCars(dt){for(const c of TRAFFIC){c.s+=c.v*dt;if(c.s>c.L.len)c.s-=c.L.len;if(c.s<0)c.s+=c.L.len}}
+function carModels(vis,out){
+  const k=easeBack(vis);
+  for(const c of TRAFFIC){const len=c.bus?95:56,s0=c.s-len/2,s1=c.s+len/2;if(s0<0||s1>c.L.len)continue;
+    out.push(F(ribbon(c.L,s0,s1,9,9,c.o),c.bus?'#ffc21a':c.col,1,1+16*k));
+    out.push(F(ribbon(c.L,s0+len*.22,s1-len*.18,6.6,6.6,c.o),'#bfe9ff',1+16*k,1+25*k));
+  }
+}
+function stageModel(vis,out){
+  const k=easeBack(vis),e=toM(EVENT),x=e[0],y=e[1];
+  out.push(F(rect(x,y,170,110),'#2b2470',0,8*k));
+  out.push(F(rect(x,y+40,150,14),'#ff2bd6',8*k,62*k));
+  out.push(F(rect(x,y+49,150,4),'#170f3a',8*k,64*k));
+  [[-80,-50],[80,-50],[-80,50],[80,50]].forEach(([dx,dy])=>out.push(F(rect(x+dx,y+dy,12,12),'#9a7bff',0,78*k)));
+  out.push(F(rect(x,y+50,172,8),'#c4b5ff',72*k,78*k),F(rect(x,y-50,172,8),'#c4b5ff',72*k,78*k));
+  [[-140,-60,'#ff4d5e'],[140,-80,'#ffd23f'],[-150,40,'#35e0ff'],[150,30,'#2fe07a']].forEach(([dx,dy,c])=>{out.push(F(rect(x+dx,y+dy,34,34),c,0,16*k),F(rect(x+dx,y+dy,20,20),'#ffffff',16*k,22*k))});
+}
+
+/* ---------- HUD canvas drawing ---------- */
+const easeBack=t=>{t=clamp(t,0,1);const s=1.7;return 1+(s+1)*Math.pow(t-1,3)+s*Math.pow(t-1,2)};
+function poly2(c,pts,fill){c.beginPath();c.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)c.lineTo(pts[i][0],pts[i][1]);c.closePath();c.fillStyle=fill;c.fill()}
+function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();c.fill()}
+const RING={2:62,5:100,10:136,50:176};
+function drawRangeRing(c,t,r,cx,cy){
+  c.save();c.globalCompositeOperation='lighter';c.translate(cx,cy);c.scale(1,.48);
+  const g=c.createRadialGradient(0,0,r*.15,0,0,r);g.addColorStop(0,'rgba(40,160,255,0)');g.addColorStop(.8,'rgba(40,160,255,.12)');g.addColorStop(1,'rgba(90,225,255,.32)');
+  c.fillStyle=g;c.beginPath();c.arc(0,0,r,0,7);c.fill();
+  const a=t*1.5;for(let i=0;i<16;i++){const a0=a-i*.055;c.fillStyle=`rgba(90,230,255,${.28*(1-i/16)})`;c.beginPath();c.moveTo(0,0);c.arc(0,0,r,a0-.055,a0);c.closePath();c.fill()}
+  c.strokeStyle='rgba(130,235,255,.95)';c.lineWidth=2.4;c.setLineDash([16,9]);c.lineDashOffset=-t*30;c.beginPath();c.arc(0,0,r,0,7);c.stroke();c.setLineDash([]);
+  for(let i=0;i<48;i++){const an=i/48*Math.PI*2-t*.15,r1=r+5,r2=r+(i%4?9:15);c.strokeStyle=`rgba(130,235,255,${i%4?.35:.85})`;c.lineWidth=1.6;c.beginPath();c.moveTo(Math.cos(an)*r1,Math.sin(an)*r1);c.lineTo(Math.cos(an)*r2,Math.sin(an)*r2);c.stroke()}
+  for(let i=0;i<2;i++){const p=((t*.45)+i*.5)%1;c.strokeStyle=`rgba(160,240,255,${(1-p)*.9})`;c.lineWidth=2;c.beginPath();c.arc(0,0,14+p*(r-14),0,7);c.stroke()}
+  c.restore();
+  c.save();c.font='700 11px Outfit, sans-serif';c.textAlign='center';c.fillStyle='rgba(200,248,255,.98)';c.shadowColor='#35e0ff';c.shadowBlur=8;c.fillText(range+' KM',cx+r*.78,cy-r*.48*.62-6);c.restore();
+}
+function drawPerson(c,cx,cy){
+  c.save();c.translate(cx,cy);c.scale(.82,.82);
+  c.fillStyle='rgba(0,20,60,.45)';c.beginPath();c.ellipse(0,2,15,5,0,0,7);c.fill();
+  c.fillStyle='#2453a0';rr(c,-8,-36,7,36,2.5);rr(c,1,-36,7,36,2.5);
+  c.fillStyle='#ff6a3d';c.fillRect(-9,-3,8,3);c.fillRect(1,-3,8,3);
+  c.fillStyle='#2b2f3a';rr(c,-13,-72,26,40,7);
+  c.fillStyle='#14161c';rr(c,-10,-68,20,26,5);
+  c.fillStyle='#35e0ff';c.fillRect(-10,-50,20,1.6);
+  c.fillStyle='#d9a37a';c.beginPath();c.arc(0,-80,8,0,7);c.fill();
+  c.fillStyle='#14161c';c.beginPath();c.arc(0,-81,7.8,0,7);c.fill();
+  c.restore();
+}
+const beamVis={train:0,flight:0,traffic:0,weather:0,event:0};
+function drawBeams(c,t,dt,sx,sy,list){
+  c.save();c.globalCompositeOperation='lighter';c.lineCap='round';
+  for(const b of list){
+    beamVis[b.k]+=((b.on?1:0)-beamVis[b.k])*Math.min(1,dt*3);const v=beamVis[b.k];if(v<.02||!b.p) continue;
+    const x=b.p.x,y=b.p.y,mx=(sx+x)/2,my=Math.min(sy,y)-50,path=()=>{c.beginPath();c.moveTo(sx,sy);c.quadraticCurveTo(mx,my,x,y)};
+    c.globalAlpha=v*.3;c.strokeStyle=b.col;c.lineWidth=6;path();c.stroke();
+    c.globalAlpha=v*.95;c.lineWidth=1.5;c.setLineDash([3,6]);c.lineDashOffset=-t*40;path();c.stroke();c.setLineDash([]);
+    const u=(t*.55+b.ph)%1,iu=1-u,px=iu*iu*sx+2*iu*u*mx+u*u*x,py=iu*iu*sy+2*iu*u*my+u*u*y;
+    c.fillStyle='#ffffff';c.beginPath();c.arc(px,py,2.2,0,7);c.fill();c.globalAlpha=v*.5;c.fillStyle=b.col;c.beginPath();c.arc(px,py,6,0,7);c.fill();
+  }
+  c.restore();
+}
+const MOTES=(()=>{const R=rng(11),a=[];for(let i=0;i<60;i++)a.push({x:R()*W,y:260+R()*480,v:6+R()*14,ph:R()*6,r:.6+R()*1.4});return a})();
+function drawMotes(c,dt,t){c.save();c.globalCompositeOperation='lighter';for(const m of MOTES){m.y-=m.v*dt;if(m.y<250){m.y=740;m.x=Math.random()*W}c.fillStyle=`rgba(130,235,255,${.3+.35*Math.sin(t*3+m.ph)})`;c.beginPath();c.arc(m.x+Math.sin(t+m.ph)*3,m.y,m.r,0,7);c.fill()}c.restore()}
+function drawContrail(c,trail,vis){
+  if(trail.length<2) return;
+  c.save();c.globalCompositeOperation='lighter';c.lineCap='round';
+  for(let i=1;i<trail.length;i++){const a=trail[i-1],b=trail[i],f=i/trail.length;
+    c.strokeStyle=`rgba(235,245,255,${f*.75*vis})`;c.lineWidth=1+f*3.5;c.beginPath();c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);c.stroke();
+    c.strokeStyle=`rgba(160,110,255,${f*.35*vis})`;c.lineWidth=7*f;c.beginPath();c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);c.stroke()}
+  c.restore();
+}
+
+/* ---------- scenario ---------- */
+function tri(t,t0,t1,t2,far,near){if(t<t0)return far;if(t<t1)return lerp(far,near,(t-t0)/(t1-t0));if(t<t2)return lerp(near,far,(t-t1)/(t2-t1));return far}
+function distances(t){
+  if(t>37.5) return {train:null,flight:null,traffic:null,weather:t<1.2?null:0,event:null};
+  return {train:tri(t,0,18,36,8,1.6),flight:tri(t,3,16,36,14,2.6),traffic:(t>=4&&t<35)?JAM_KM:null,weather:t>=1.2?0:null,event:(t>=22&&t<37)?EVENT_KM:null};
+}
+const OBJ=[
+  {k:'train',name:'Train · Rajdhani Express',col:'#2f7dff'},{k:'flight',name:'Flight · AI138',col:'#8b5cff'},
+  {k:'traffic',name:'Road traffic · Ring Road',col:'#ff4d5e'},{k:'weather',name:'Weather · 28°C',col:'#35e0ff'},{k:'event',name:'Event · Music Fest',col:'#e0359b'}];
+const objsEl=$('#objs');
+OBJ.forEach(o=>{const d=document.createElement('div');d.className='obj';d.innerHTML=`<span class="sw" style="background:${o.col}"></span><span>${o.name}</span><span class="d" id="d-${o.k}">–</span><span class="chip none" id="c-${o.k}">No data</span>`;objsEl.appendChild(d)});
+const fmt=d=>d==null?'–':(d<10?d.toFixed(1):Math.round(d))+' km';
+const clockStr=t=>`0:${String(Math.floor(t)).padStart(2,'0')}`;
+let simT=0,animT=0,playing=true,speed=1,range=5,hudR=RING[5];
+const train={st:'hidden',p:0},plane={st:'hidden',p:0},vis={traffic:0,weather:0,event:0};
+let prevIn={},logItems=[],trail=[];
+function log(msg){logItems.unshift(`<li><time>${clockStr(simT)}</time><span>${msg}</span></li>`);logItems=logItems.slice(0,6);$('#log').innerHTML=logItems.join('')}
+function reset(){simT=0;train.st=plane.st='hidden';vis.traffic=vis.weather=vis.event=0;prevIn={};logItems=[];trail=[];$('#log').innerHTML='<li><time>0:00</time><span>Finding your location…</span></li>'}
+function step(m,inR,dt,cfg){
+  if(m.st==='hidden'&&inR){m.st='entering';m.p=cfg.start}
+  if((m.st==='entering'||m.st==='present')&&!inR) m.st='leaving';
+  if(m.st==='entering'){m.p+=(cfg.target-m.p)*Math.min(1,dt*cfg.ease);if(Math.abs(cfg.target-m.p)<cfg.eps)m.st='present'}
+  else if(m.st==='present'){m.p+=cfg.crawl*dt}
+  else if(m.st==='leaving'){m.p+=cfg.leave*dt;if(m.p>cfg.end)m.st='hidden'}
+}
+const TRAIN_CFG={start:0,target:TRAIN_TARGET,ease:.75,eps:3,crawl:14,leave:420,end:TRAIN.len+CARS*(CAR_L+CAR_G)};
+const PLANE_CFG={start:-.04,target:.54,ease:.9,eps:.003,crawl:.004,leave:.16,end:1.25};
+const toggle=(el,on)=>$(el).classList.toggle('show',on);
+const LABEL={train:'Train',flight:'Flight',traffic:'Heavy traffic',weather:'Weather',event:'Music Fest'};
+const place=(id,x,y)=>{const el=$(id);el.style.transform=`translate(${x}px,${y}px)`};
+
+/* ---------- boot ---------- */
+const hud=$('#hud'),hc=hud.getContext('2d');
+const frameEl=$('#frame'),stage=$('#stage'),col=$('.stage-col');
+let q=1,map=null,ready=false;
+function fit(){
+  const w=Math.min(col.clientWidth,(window.innerHeight-40)*2/3,560),s=w/512;
+  frameEl.style.width=w+'px';frameEl.style.height=(w*1.5)+'px';stage.style.transform=`scale(${s})`;
+  q=Math.min(3,s*(window.devicePixelRatio||1));hud.width=Math.round(W*q);hud.height=Math.round(H*q);hc.setTransform(q,0,0,q,0,0);
+  if(map&&map.setPixelRatio) map.setPixelRatio(q);
+}
+let rt;new ResizeObserver(()=>{clearTimeout(rt);rt=setTimeout(fit,80)}).observe(col);
+fit();reset();
+
+if(!window.maplibregl){$('#loading').textContent='The map library could not load.';return}
+map=new maplibregl.Map({container:'map',style:SAT?satellite(makeStyle()):makeStyle(),center:CENTER,zoom:14.45,pitch:62,bearing:-8,maxPitch:75,
+  interactive:false,attributionControl:false,fadeDuration:0,pixelRatio:q,antialias:true});
+map.on('error',e=>console.warn(e&&e.error));window.__nl={map};
+map.on('load',()=>{map.setLight({anchor:'map',color:'#ffffff',intensity:.5,position:[1.4,210,35]});ready=true;$('#loading').classList.add('done')});
+
+const DASH=[[0,4,3],[.5,4,2.5],[1,4,2],[1.5,4,1.5],[2,4,1],[2.5,4,.5],[3,4,0],[0,.5,3,3.5],[0,1,3,3],[0,1.5,3,2.5],[0,2,3,2],[0,2.5,3,1.5],[0,3,3,1],[0,3.5,3,.5]];
+let last=performance.now(),uiTick=0,dashStep=-1,frameN=0;
+function frame(now){
+  requestAnimationFrame(frame);
+  const raw=Math.min(.05,(now-last)/1000);last=now;if(!ready) return;
+  const dt=raw*speed;animT+=dt;frameN++;
+  if(playing){simT+=dt;if(simT>=LOOP){simT-=LOOP;log('Scenario restarted')}}
+  const D=distances(simT),inR={};for(const k in D) inR[k]=D[k]!=null&&D[k]<=range;
+  step(train,inR.train,dt,TRAIN_CFG);step(plane,inR.flight,dt,PLANE_CFG);
+  for(const k of ['traffic','weather','event']) vis[k]+=((inR[k]?1:0)-vis[k])*Math.min(1,dt*2.5);
+
+  map.jumpTo({bearing:-8+Math.sin(animT*.1)*7});
+  const movers=[];
+  if(train.st!=='hidden') trainModel(train.p,movers);
+  stepCars(dt);if(vis.traffic>.01) carModels(vis.traffic,movers);
+  if(vis.event>.01) stageModel(vis.event,movers);
+  map.getSource('movers').setData(FC(movers));
+  map.setPaintProperty('flow-glow','line-opacity',vis.traffic*.75);
+  map.setPaintProperty('flow','line-opacity',vis.traffic*.95);
+  const ds=Math.floor(animT*12)%DASH.length;if(ds!==dashStep){dashStep=ds;map.setPaintProperty('flow','line-dasharray',DASH[ds])}
+  map.setPaintProperty('crowd','circle-opacity',vis.event);map.setPaintProperty('crowd','circle-radius',2+Math.abs(Math.sin(animT*7))*1.2);
+
+  const prj=ll=>map.project(ll),you=prj(USER);
+  const trainShown=(train.st==='entering'&&train.p>TRAIN_TARGET*.6)||train.st==='present';
+  const planeShown=(plane.st==='entering'&&plane.p>.35)||plane.st==='present';
+  const tp=train.st!=='hidden'?prj(toLL((m=>[m.x,m.y])(at(TRAIN,Math.max(0,train.p-CAR_L*1.5))))):null;
+  // the plane flies in screen space: it is in the sky, so its ground position barely matters
+  let pp=null;const pang=Math.atan2(PLANE_B[1]-PLANE_A[1],PLANE_B[0]-PLANE_A[0]);
+  if(plane.st!=='hidden'){
+    pp={x:lerp(PLANE_A[0],PLANE_B[0],plane.p),y:lerp(PLANE_A[1],PLANE_B[1],plane.p)+Math.sin(animT*1.3)*3};
+    if(frameN%2===0){trail.push({x:pp.x,y:pp.y});if(trail.length>45)trail.shift()}
+  }else if(trail.length&&frameN%2===0) trail.shift();
+  const jam=ROUTES[JAM.r]?prj(toLL((m=>[m.x,m.y])(at(ROUTES[JAM.r],JAM.s)))):null;
+  const ev=prj(EVENT),wx={x:286,y:352};
+
+  hc.clearRect(0,0,W,H);
+  hudR+=(RING[range]-hudR)*Math.min(1,raw*4);
+  drawRangeRing(hc,animT,hudR,you.x,you.y);
+  drawBeams(hc,animT,raw,you.x,you.y-95,[
+    {k:'train',on:trainShown,p:tp&&{x:tp.x,y:tp.y-30},col:'#4fa3ff',ph:0},
+    {k:'flight',on:planeShown,p:pp,col:'#a07bff',ph:.2},
+    {k:'traffic',on:vis.traffic>.6&&inR.traffic,p:jam,col:'#ff4d6a',ph:.4},
+    {k:'weather',on:vis.weather>.5&&inR.weather,p:{x:wx.x,y:wx.y-40},col:'#35e0ff',ph:.6},
+    {k:'event',on:vis.event>.5&&inR.event,p:{x:ev.x,y:ev.y-30},col:'#ff4fb8',ph:.8}]);
+  drawPerson(hc,you.x,you.y);
+  drawMotes(hc,raw,animT);
+  drawContrail(hc,trail,plane.st==='hidden'?.6:1);
+
+  // HTML overlays
+  place('#pinYou',you.x-15,you.y-150);place('#youLabel',you.x-28,you.y+16);
+  toggle('#cardTrain',trainShown);toggle('#pinTrain',trainShown);if(tp)place('#pinTrain',tp.x-15,tp.y-78);
+  toggle('#cardFlight',planeShown);toggle('#pinFlight',planeShown);toggle('#flightKm',planeShown);
+  toggle('#plane',plane.st!=='hidden');toggle('#pshadow',plane.st!=='hidden');
+  if(pp){$('#plane').style.transform=`translate(${pp.x}px,${pp.y}px) rotate(${pang+Math.PI/2}rad) scale(${1+.06*Math.sin(animT)})`;
+    $('#pshadow').style.transform=`translate(${pp.x+14}px,${pp.y+170}px) rotate(${pang+Math.PI/2}rad) scale(.6,.4)`;
+    place('#pinFlight',pp.x-72,pp.y-18);place('#flightKm',pp.x-84,pp.y+26)}
+  const trafficOn=vis.traffic>.6&&inR.traffic;toggle('#cardTraffic',trafficOn);toggle('#pinTraffic',trafficOn);if(jam)place('#pinTraffic',jam.x-15,jam.y-44);
+  toggle('#wx',vis.weather>.5&&inR.weather);place('#wx',wx.x,wx.y);
+  toggle('#cardWeather',vis.weather>.5&&inR.weather);
+  const evOn=vis.event>.5&&inR.event;toggle('#cardEvent',evOn);toggle('#pinEvent',evOn);toggle('#lights',evOn);
+  place('#pinEvent',ev.x-15,ev.y-110);place('#lights',ev.x,ev.y-34);
+  const live=$('#live');live.classList.toggle('locating',simT<1.2);$('#liveText').textContent=simT<1.2?'Locating…':'Live Updates';
+
+  for(const o of OBJ){
+    if(prevIn[o.k]!==undefined&&prevIn[o.k]!==inR[o.k]){
+      if(inR[o.k]) log(`${LABEL[o.k]} entered your ${range} km range (${fmt(D[o.k])})`);
+      else if(D[o.k]!=null) log(`${LABEL[o.k]} left your range (${fmt(D[o.k])})`);
+      else if(o.k!=='weather') log(`${LABEL[o.k]} is no longer reported nearby`);
+    }
+    prevIn[o.k]=inR[o.k];
+  }
+  if(now-uiTick>120){uiTick=now;
+    $('#trainKm').textContent=fmt(D.train);$('#flightKm').textContent=fmt(D.flight);
+    for(const o of OBJ){const d=D[o.k],c=$('#c-'+o.k);$('#d-'+o.k).textContent=fmt(d);
+      if(d==null){c.className='chip none';c.textContent='No data'}else if(inR[o.k]){c.className='chip in';c.textContent='In range'}else{c.className='chip out';c.textContent='Out of range'}}
+    $('#clock').textContent=clockStr(simT);$('#prog').style.width=(simT/LOOP*100)+'%';
+  }
+}
+requestAnimationFrame(frame);
+
+$('#range').addEventListener('change',e=>{range=+e.target.value;log(`Range set to ${range} km`)});
+$('#play').addEventListener('click',e=>{playing=!playing;e.target.textContent=playing?'Pause':'Play';e.target.classList.toggle('primary',playing)});
+$('#restart').addEventListener('click',()=>{reset();if(!playing)$('#play').click()});
+$('#speed').addEventListener('click',e=>{speed=speed===1?2:1;e.target.textContent=`Speed ${speed}×`});
+})();
+</script>

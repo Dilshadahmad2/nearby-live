@@ -1,0 +1,7 @@
+# Local Google Maps key and the probe page that uses it
+prototype/google/
+
+# Tooling
+node_modules/
+.DS_Store
+Thumbs.db

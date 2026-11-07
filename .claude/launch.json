@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["prototype/serve.js"],
+      "port": 5173
+    }
+  ]
+}
