@@ -106,6 +106,9 @@ func (o *OpenSky) setDefaults() {
 	}
 }
 
+// Kind implements [Refresher].
+func (o *OpenSky) Kind() Kind { return KindFlight }
+
 // Credits OpenSky charges for a /states/all request over b.
 func Credits(b geo.BBox) int {
 	area := (b.North - b.South) * (b.East - b.West)

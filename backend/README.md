@@ -158,7 +158,9 @@ curl -X POST localhost:8080/v1/position/estimate -H 'Content-Type: application/j
                      ┌─────────────── live hub (memory, 0.5° grid) ───────────────┐
  timetable + delays ─▶ trains   (every train in India, recomputed every 30 s)       │──▶ /v1/live, /v1/live/ws
  OpenSky             ─▶ flights  (India sweep + on-demand refresh around requests)  │──▶ /v1/live/bbox
- (next: traffic, events, buses, ships …)                                            │──▶ /v1/live/{kind}/{id}
+ Open-Meteo          ─▶ weather  (one object per ~11 km cell, cached 10 min)       │──▶ /v1/live/{kind}/{id}
+ TomTom (server key) ─▶ traffic  (road segments per ~5 km area, cached 3 min)      │
+ (next: events, buses, ships …)                                                     │
                      └────────────────────────────────────────────────────────────┘
 ```
 
@@ -173,6 +175,16 @@ without a fix. A new kind only needs a source that calls `hub.Replace` (full sna
 ```bash
 curl 'localhost:8080/v1/live?lat=28.654&lon=77.241&radius_km=5&types=train,flight'
 ```
+
+### Weather and traffic
+
+These two are fetched **on demand** for the area of each request or stream subscription. Every
+user in the same area shares one upstream request, so the TomTom key never leaves the server.
+
+| Kind | Object | Notes |
+|---|---|---|
+| `weather` | `status` / `label` (e.g. "Partly Cloudy"); `extra.temperature_c`, `humidity_pct`, `wind_kmh`, `rain_pct`, `code` | Always on (Open-Meteo, no key). The nearest cell is included even when its centre is outside a small radius. |
+| `traffic` | `status` = free / light / moderate / heavy / closed; `label` = road class; `speed_kmh`; `extra.free_flow_kmh`, `current_kmh`, `closed`, `coordinates` ([lon, lat] line) | Only with `TOMTOM_KEY`. Each refresh is 7 samples, capped by `TOMTOM_DAILY_REQUESTS` (default 2000). |
 
 ### WebSocket stream (`/v1/live/ws`)
 
@@ -297,6 +309,8 @@ Re-seeding keeps coordinates added this way when the source has none.
 | `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` | — | OAuth2 client credentials |
 | `OPENSKY_DAILY_CREDITS` / `OPENSKY_SWEEP_INTERVAL` / `OPENSKY_BBOX` | auto / auto / India | |
 | `WS_MAX_CONNS` / `WS_MIN_INTERVAL` / `WS_ORIGINS` | `1000` / `1s` / any | WebSocket stream limits |
+| `WEATHER_MAX_AGE` | `10m` | Weather cache per cell |
+| `TOMTOM_KEY` / `TOMTOM_DAILY_REQUESTS` / `TRAFFIC_MAX_AGE` | — / `2000` / `3m` | Traffic layer (off without a key) |
 
 ## Deploy
 
@@ -333,7 +347,7 @@ flutter build apk --dart-define=BACKEND_URL=https://api.example.com
 | `nearby_live_age_seconds{kind}` | Time since that kind's last refresh |
 | `nearby_live_feed_error{kind}` | 1 when the last refresh failed |
 | `nearby_stream_connections` | Open WebSocket streams |
-| `nearby_delay_provider_requests_today`, `nearby_opensky_credits_used_today`, `nearby_opensky_daily_credits` | Budgets |
+| `nearby_delay_provider_requests_today`, `nearby_opensky_credits_used_today`, `nearby_opensky_daily_credits`, `nearby_tomtom_requests_today` | Budgets |
 
 Suggested alerts:
 - `nearby_live_age_seconds{kind="train"} > 120`

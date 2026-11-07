@@ -40,8 +40,12 @@ type Server struct {
 	Delays *delay.Service
 	// Hub holds live positions of every tracked object.
 	Hub *live.Hub
-	// Sky refreshes flights around requests (nil = no flight feed).
+	// Sky is the OpenSky feed (nil = none); also in Refreshers.
 	Sky *live.OpenSky
+	// Traffic is the TomTom feed (nil = no key); also in Refreshers.
+	Traffic *live.Traffic
+	// Refreshers fetch areas on demand (flights, weather, traffic).
+	Refreshers live.Refreshers
 	// Stream serves GET /v1/live/ws (created from Hub/Sky when nil).
 	Stream *stream.Server
 
@@ -85,7 +89,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/position/estimate", s.estimate)
 
 	if s.Stream == nil {
-		s.Stream = &stream.Server{Hub: s.Hub, Sky: s.Sky, Log: s.Log}
+		s.Stream = &stream.Server{Hub: s.Hub, Refreshers: s.Refreshers, Log: s.Log}
 	}
 	mux.Handle("GET /v1/live/ws", s.Stream)
 	mux.HandleFunc("GET /v1/live", s.liveNearby)
@@ -484,18 +488,6 @@ func kindsParam(r *http.Request) []live.Kind {
 	return out
 }
 
-func wants(kinds []live.Kind, k live.Kind) bool {
-	if len(kinds) == 0 {
-		return true
-	}
-	for _, x := range kinds {
-		if x == k {
-			return true
-		}
-	}
-	return false
-}
-
 // liveNearby returns every tracked object within radius of a point.
 //
 //	GET /v1/live?lat=28.65&lon=77.24&radius_km=10&types=train,flight&limit=100
@@ -506,10 +498,8 @@ func (s *Server) liveNearby(w http.ResponseWriter, r *http.Request) {
 	}
 	radius := floatParam(r, "radius_km", 10, 0.1, 500)
 	kinds := kindsParam(r)
-	if s.Sky != nil && wants(kinds, live.KindFlight) {
-		s.Sky.EnsureFresh(r.Context(), p, radius, 3*time.Second)
-	}
-	res := s.Hub.Find(live.Query{Center: &p, RadiusKm: radius, Kinds: kinds, Limit: intParam(r, "limit", 100, 1, 2000)})
+	s.Refreshers.Ensure(r.Context(), kinds, p, radius, 3*time.Second)
+	res := s.Hub.FindArea(live.Query{Center: &p, RadiusKm: radius, Kinds: kinds, Limit: intParam(r, "limit", 100, 1, 2000)})
 	writeJSON(w, http.StatusOK, map[string]any{"count": len(res), "items": nonNil(res), "layers": s.Hub.Status()})
 }
 
@@ -532,10 +522,8 @@ func (s *Server) liveBBox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kinds := kindsParam(r)
-	if s.Sky != nil && wants(kinds, live.KindFlight) {
-		c := geo.Point{Lat: (b.South + b.North) / 2, Lon: (b.West + b.East) / 2}
-		s.Sky.EnsureFresh(r.Context(), c, geo.HaversineKm(c, geo.Point{Lat: b.North, Lon: b.East}), 3*time.Second)
-	}
+	c := geo.Point{Lat: (b.South + b.North) / 2, Lon: (b.West + b.East) / 2}
+	s.Refreshers.Ensure(r.Context(), kinds, c, geo.HaversineKm(c, geo.Point{Lat: b.North, Lon: b.East}), 3*time.Second)
 	res := s.Hub.Find(live.Query{BBox: &b, Kinds: kinds, Limit: intParam(r, "limit", 500, 1, 5000)})
 	writeJSON(w, http.StatusOK, map[string]any{"count": len(res), "items": nonNil(res), "layers": s.Hub.Status()})
 }
@@ -565,6 +553,9 @@ func (s *Server) liveStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 	if s.Sky != nil {
 		out["opensky"] = s.Sky.Usage()
+	}
+	if s.Traffic != nil {
+		out["tomtom"] = s.Traffic.Usage()
 	}
 	writeJSON(w, http.StatusOK, out)
 }

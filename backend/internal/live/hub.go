@@ -296,3 +296,43 @@ func destination(p geo.Point, bearing, km float64) geo.Point {
 	lon2 := lo + math.Atan2(math.Sin(br)*math.Sin(d)*math.Cos(la), math.Cos(d)-math.Sin(la)*math.Sin(lat2))
 	return geo.Point{Lat: lat2 * 180 / math.Pi, Lon: math.Mod(lon2*180/math.Pi+540, 360) - 180}
 }
+
+// Nearest returns the closest object of kind k within maxKm of p.
+func (h *Hub) Nearest(k Kind, p geo.Point, maxKm float64) (Result, bool) {
+	got := h.Find(Query{Center: &p, RadiusKm: maxKm, Kinds: []Kind{k}, Limit: 1})
+	if len(got) == 0 {
+		return Result{}, false
+	}
+	return got[0], true
+}
+
+// FindArea is Find plus the nearest weather cell (within 25 km) when
+// weather is wanted: weather describes an area, so it is included even if
+// its cell centre lies outside a small radius.
+func (h *Hub) FindArea(q Query) []Result {
+	out := h.Find(q)
+	if q.Center == nil || !wantsKind(q.Kinds, KindWeather) {
+		return out
+	}
+	for _, r := range out {
+		if r.Kind == KindWeather {
+			return out
+		}
+	}
+	if w, ok := h.Nearest(KindWeather, *q.Center, 25); ok {
+		out = append(out, w)
+	}
+	return out
+}
+
+func wantsKind(kinds []Kind, k Kind) bool {
+	if len(kinds) == 0 {
+		return true
+	}
+	for _, x := range kinds {
+		if x == k {
+			return true
+		}
+	}
+	return false
+}

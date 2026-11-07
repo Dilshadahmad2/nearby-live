@@ -6,7 +6,7 @@
 //
 // Client → server:
 //
-//	{"type":"subscribe","lat":28.65,"lon":77.24,"radius_km":10,"types":["train","flight"],"limit":200,"interval_ms":2000}
+//	{"type":"subscribe","lat":28.65,"lon":77.24,"radius_km":10,"types":["train","flight","traffic","weather"],"limit":200,"interval_ms":2000}
 //	{"type":"ping"}
 //
 // Sending "subscribe" again (user moved, range changed) replaces the
@@ -15,7 +15,7 @@
 // Server → client:
 //
 //	{"type":"hello","protocol":1,"min_interval_ms":1000}
-//	{"type":"snapshot","seq":1,"at":"…","items":[Result…]}
+//	{"type":"snapshot","seq":1,"at":"…","items":[Result…],"layers":[…]}
 //	{"type":"diff","seq":2,"at":"…","upsert":[Result…],"remove":[{"kind":"flight","id":"800c1b"}]}
 //	{"type":"status","layers":[…]}       // every 30 s
 //	{"type":"pong"}
@@ -26,6 +26,7 @@
 package stream
 
 import (
+	"encoding/json"
 	"math"
 	"time"
 
@@ -79,6 +80,7 @@ type fingerprint struct {
 	prev, next     string
 	source         string
 	onGround       bool
+	extra          string // weather values, traffic speeds, …
 }
 
 func fp(r live.Result) fingerprint {
@@ -100,6 +102,10 @@ func fp(r live.Result) fingerprint {
 	}
 	if r.DelayMin != nil {
 		f.delay, f.hasDelay = int32(*r.DelayMin), true
+	}
+	if len(r.Extra) > 0 {
+		b, _ := json.Marshal(r.Extra) // map keys are sorted, so this is stable
+		f.extra = string(b)
 	}
 	return f
 }

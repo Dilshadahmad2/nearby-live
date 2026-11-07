@@ -2,7 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nearby_live/core/geo/geo_point.dart';
 import 'package:nearby_live/features/live/live_mapping.dart';
 import 'package:nearby_live/features/live/live_stream.dart';
+import 'package:nearby_live/features/traffic/traffic.dart';
 import 'package:nearby_live/features/trains/backend_train_source.dart';
+import 'package:nearby_live/features/weather/weather.dart';
 
 Map<String, dynamic> obj(String kind, String id, double lat, double lon, [Map<String, dynamic> more = const {}]) => {
       'kind': kind,
@@ -73,5 +75,52 @@ void main() {
     expect(t.number, '12951');
     expect(t.from, 'BCT');
     expect(t.statusText, 'Moving · 25 min late');
+  });
+
+  test('weather and traffic objects map to app models', () {
+    final now = DateTime.utc(2026, 11, 7);
+    final w = weatherFromLive(
+      LiveObject.fromJson(obj('weather', 'wx:772:286', 28.65, 77.25, {
+        'extra': {'temperature_c': 27.6, 'humidity_pct': 62, 'wind_kmh': 11.9, 'rain_pct': 10, 'code': 2},
+      }))!,
+      now,
+    );
+    expect(w.temperatureC, 27.6);
+    expect(w.humidityPct, 62);
+    expect(w.visual, WeatherVisual.partlyCloudy);
+
+    final seg = trafficFromLive(LiveObject.fromJson(obj('traffic', 'seg', 28.652, 77.242, {
+      'label': 'Main Road',
+      'status': 'heavy',
+      'extra': {
+        'current_kmh': 12,
+        'free_flow_kmh': 45,
+        'closed': false,
+        'coordinates': [
+          [77.240, 28.651],
+          [77.244, 28.653],
+        ],
+      },
+    }))!)!;
+    expect(seg.points.first, const GeoPoint(28.651, 77.240));
+    expect(seg.congestion, Congestion.heavy);
+    expect(seg.roadName, 'Main Road');
+  });
+
+  test('store remembers which feeds the server runs', () {
+    final s = LiveObjectStore();
+    s.apply({
+      'type': 'snapshot',
+      'seq': 1,
+      'items': [],
+      'layers': [
+        {'kind': 'train', 'source': 'timetable'},
+        {'kind': 'weather', 'source': 'open-meteo'},
+      ],
+    });
+    expect(s.serves('weather'), isTrue);
+    expect(s.serves('traffic'), isFalse);
+    s.reset();
+    expect(s.serves('weather'), isFalse);
   });
 }

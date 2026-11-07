@@ -310,12 +310,27 @@ class NearbyController extends Notifier<NearbyState> {
     }
   }
 
+  /// The backend streams weather / traffic itself (so local polling stops).
+  bool get _streamWeather => _streaming && (_stream?.store.serves('weather') ?? false);
+  bool get _streamTraffic => _streaming && (_stream?.store.serves('traffic') ?? false);
+
   void _onStreamObjects(Map<String, LiveObject> objects) {
     final now = DateTime.now();
     final byId = {for (final f in state.flights) f.state.icao24: f};
     final flights = <FlightTrack>[];
     final trains = <Train>[];
+    final traffic = <TrafficSegment>[];
+    LiveObject? nearestWeather;
     for (final o in objects.values) {
+      if (o.kind == 'weather') {
+        if (nearestWeather == null || (o.distanceKm ?? 1e9) < (nearestWeather.distanceKm ?? 1e9)) nearestWeather = o;
+        continue;
+      }
+      if (o.kind == 'traffic') {
+        final seg = trafficFromLive(o);
+        if (seg != null) traffic.add(seg);
+        continue;
+      }
       if (o.kind == 'flight' && !o.onGround) {
         final s = flightFromLive(o, now);
         final track = byId[s.icao24];
@@ -331,9 +346,17 @@ class NearbyController extends Notifier<NearbyState> {
         trains.add(snapToRail(trainEstimateFromLive(o), _rails, now));
       }
     }
-    state = state.copyWith(flights: flights, trains: trains);
+    state = state.copyWith(
+      flights: flights,
+      trains: trains,
+      weather: nearestWeather == null ? null : weatherFromLive(nearestWeather, now),
+      traffic: _streamTraffic ? traffic : null,
+      trafficIsMock: _streamTraffic ? false : null,
+    );
     _ok(NearbyKind.flight, const Duration(minutes: 2));
     _ok(NearbyKind.train, const Duration(minutes: 5));
+    if (nearestWeather != null) _ok(NearbyKind.weather, const Duration(minutes: 25));
+    if (_streamTraffic) _ok(NearbyKind.traffic, const Duration(minutes: 10));
     final u = state.user;
     if (u != null) _lookupRoutes(flights, u);
   }
@@ -371,6 +394,10 @@ class NearbyController extends Notifier<NearbyState> {
   Future<void> _refreshWeather() async {
     final u = state.user;
     if (u == null) return;
+    if (_streamWeather) {
+      _schedule(NearbyKind.weather, AppConfig.weatherPoll, _refreshWeather);
+      return;
+    }
     const stale = Duration(minutes: 25);
     try {
       final w = await ref.read(openMeteoApiProvider).current(u);
@@ -438,6 +465,10 @@ class NearbyController extends Notifier<NearbyState> {
   Future<void> _refreshTraffic() async {
     final u = state.user;
     if (u == null) return;
+    if (_streamTraffic) {
+      _schedule(NearbyKind.traffic, AppConfig.trafficPoll, _refreshTraffic);
+      return;
+    }
     const stale = Duration(minutes: 10);
     final src = ref.read(trafficSourceProvider);
     try {

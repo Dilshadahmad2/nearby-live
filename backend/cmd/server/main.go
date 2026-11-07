@@ -25,6 +25,9 @@
 //	OPENSKY_DAILY_CREDITS   default 400 anonymous / 4000 with credentials
 //	OPENSKY_SWEEP_INTERVAL  default: derived from the credit budget
 //	OPENSKY_BBOX            south,west,north,east (default India)
+//	WEATHER_MAX_AGE         Open-Meteo cache per ~11 km cell (default 10m)
+//	TOMTOM_KEY              enables the traffic layer (key stays on the server)
+//	TOMTOM_DAILY_REQUESTS   default 2000; TRAFFIC_MAX_AGE per ~5 km cell (default 3m)
 //
 // WebSocket stream (GET /v1/live/ws):
 //
@@ -179,8 +182,18 @@ func setupLive(ctx context.Context, log *slog.Logger, srv *api.Server, store del
 			Log:           log,
 		}
 		srv.Sky = sky
+		srv.Refreshers = append(srv.Refreshers, sky)
 		go sky.Run(ctx)
 	}
+
+	// Weather (Open-Meteo, no key) is always on; traffic needs a TomTom key.
+	srv.Refreshers = append(srv.Refreshers, &live.Weather{Hub: srv.Hub, MaxAge: dur("WEATHER_MAX_AGE", 10*time.Minute), Log: log})
+	if key := os.Getenv("TOMTOM_KEY"); key != "" {
+		reqs, _ := strconv.Atoi(os.Getenv("TOMTOM_DAILY_REQUESTS"))
+		srv.Traffic = &live.Traffic{Hub: srv.Hub, Key: key, DailyRequests: reqs, MaxAge: dur("TRAFFIC_MAX_AGE", 3*time.Minute), Log: log}
+		srv.Refreshers = append(srv.Refreshers, srv.Traffic)
+	}
+	log.Info("live sources", "flights", srv.Sky != nil, "weather", true, "traffic", srv.Traffic != nil)
 
 	maxConns, _ := strconv.Atoi(os.Getenv("WS_MAX_CONNS"))
 	var origins []string
@@ -189,7 +202,7 @@ func setupLive(ctx context.Context, log *slog.Logger, srv *api.Server, store del
 			origins = append(origins, o)
 		}
 	}
-	srv.Stream = &stream.Server{Hub: srv.Hub, Sky: srv.Sky, Log: log, Cfg: stream.Config{
+	srv.Stream = &stream.Server{Hub: srv.Hub, Refreshers: srv.Refreshers, Log: log, Cfg: stream.Config{
 		MaxConns:       maxConns,
 		MinInterval:    dur("WS_MIN_INTERVAL", time.Second),
 		OriginPatterns: origins,

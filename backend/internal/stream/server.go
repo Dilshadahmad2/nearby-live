@@ -33,9 +33,10 @@ type Config struct {
 // Server streams the hub to WebSocket clients.
 type Server struct {
 	Hub *live.Hub
-	Sky *live.OpenSky // optional: refresh flights around subscribers
-	Log *slog.Logger
-	Cfg Config
+	// Refreshers fetch areas on demand around subscribers (flights, weather, traffic).
+	Refreshers live.Refreshers
+	Log        *slog.Logger
+	Cfg        Config
 
 	conns atomic.Int64
 }
@@ -102,18 +103,6 @@ func (s *Server) parseSub(m ClientMsg) (subscription, error) {
 		sub.interval = max(s.Cfg.MinInterval, time.Duration(m.IntervalMs)*time.Millisecond)
 	}
 	return sub, nil
-}
-
-func (sub subscription) wantsFlights() bool {
-	if len(sub.kinds) == 0 {
-		return true
-	}
-	for _, k := range sub.kinds {
-		if k == live.KindFlight {
-			return true
-		}
-	}
-	return false
 }
 
 // ServeHTTP upgrades and runs one client.
@@ -196,11 +185,9 @@ func (s *Server) run(ctx context.Context, c *websocket.Conn) error {
 	defer ping.Stop()
 
 	query := func() []live.Result {
-		if s.Sky != nil && sub.wantsFlights() {
-			s.Sky.EnsureFresh(ctx, sub.center, sub.radiusKm, 0) // non-blocking
-		}
+		s.Refreshers.Ensure(ctx, sub.kinds, sub.center, sub.radiusKm, 0) // non-blocking
 		c := sub.center
-		return s.Hub.Find(live.Query{Center: &c, RadiusKm: sub.radiusKm, Kinds: sub.kinds, Limit: sub.limit})
+		return s.Hub.FindArea(live.Query{Center: &c, RadiusKm: sub.radiusKm, Kinds: sub.kinds, Limit: sub.limit})
 	}
 
 	for {
@@ -221,9 +208,9 @@ func (s *Server) run(ctx context.Context, c *websocket.Conn) error {
 				}
 				first := sub == nil
 				sub = &ns
-				if first && s.Sky != nil && sub.wantsFlights() {
-					// Give the first snapshot a chance to include flights.
-					s.Sky.EnsureFresh(ctx, sub.center, sub.radiusKm, 3*time.Second)
+				if first {
+					// Give the first snapshot a chance to include fetched areas.
+					s.Refreshers.Ensure(ctx, sub.kinds, sub.center, sub.radiusKm, 3*time.Second)
 				}
 				items := query()
 				diff.Snapshot(items)
@@ -232,7 +219,7 @@ func (s *Server) run(ctx context.Context, c *websocket.Conn) error {
 				if items == nil {
 					items = []live.Result{}
 				}
-				if err := write(ServerMsg{Type: "snapshot", Seq: seq, At: &now, Items: items}); err != nil {
+				if err := write(ServerMsg{Type: "snapshot", Seq: seq, At: &now, Items: items, Layers: s.Hub.Status()}); err != nil {
 					return err
 				}
 				tick.Reset(sub.interval)

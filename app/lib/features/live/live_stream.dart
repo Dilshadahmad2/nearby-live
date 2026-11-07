@@ -81,12 +81,21 @@ enum ApplyResult { ignored, changed, resync }
 /// diff messages. Pure (no I/O), so it is unit-tested directly.
 class LiveObjectStore {
   final Map<String, LiveObject> objects = {};
+
+  /// Feeds the server runs, by kind → source (from snapshot / status).
+  final Map<String, String> layers = {};
   int _seq = 0;
   bool _haveSnapshot = false;
 
   int get seq => _seq;
 
   ApplyResult apply(Map<String, dynamic> msg) {
+    final ls = msg['layers'];
+    if (ls is List) {
+      for (final l in ls) {
+        if (l is Map && l['kind'] != null) layers['${l['kind']}'] = '${l['source'] ?? ''}';
+      }
+    }
     switch (msg['type']) {
       case 'snapshot':
         objects.clear();
@@ -115,8 +124,12 @@ class LiveObjectStore {
     }
   }
 
+  /// True when the server has a feed for [kind].
+  bool serves(String kind) => layers.containsKey(kind);
+
   void reset() {
     objects.clear();
+    layers.clear();
     _seq = 0;
     _haveSnapshot = false;
   }
@@ -124,7 +137,12 @@ class LiveObjectStore {
 
 /// What the client asks the server for.
 class LiveSubscription {
-  const LiveSubscription({required this.center, required this.radiusKm, this.types = const ['train', 'flight'], this.intervalMs = 2000});
+  const LiveSubscription({
+    required this.center,
+    required this.radiusKm,
+    this.types = const ['train', 'flight', 'traffic', 'weather'],
+    this.intervalMs = 2000,
+  });
   final GeoPoint center;
   final double radiusKm;
   final List<String> types;

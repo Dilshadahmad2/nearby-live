@@ -21,8 +21,9 @@ Optional live road traffic (TomTom Traffic Flow, free tier):
 flutter run --dart-define=TOMTOM_KEY=your_tomtom_key
 ```
 
-Use the backend (`../backend`). Trains (timetable plus live delays) and flights then arrive over
-one WebSocket (`/v1/live/ws`): a snapshot, then only the changes about every 2 s. The app
+Use the backend (`../backend`). Trains (timetable plus live delays), flights, weather and, when the
+server has a TomTom key, traffic then all arrive over one WebSocket (`/v1/live/ws`): a snapshot,
+then only the changes about every 2 s. The app itself needs no API keys. The app
 re-subscribes when you move or change the range, reconnects with back-off, and falls back to
 polling while the connection is down:
 

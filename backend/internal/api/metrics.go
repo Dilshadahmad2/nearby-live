@@ -146,6 +146,10 @@ func (s *Server) serveMetrics(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(&b, "# HELP nearby_opensky_credits_used_today OpenSky credits used today (UTC).\n# TYPE nearby_opensky_credits_used_today gauge\nnearby_opensky_credits_used_today %v\n", u["credits_used_today"])
 		fmt.Fprintf(&b, "# HELP nearby_opensky_daily_credits OpenSky daily credit budget.\n# TYPE nearby_opensky_daily_credits gauge\nnearby_opensky_daily_credits %v\n", u["daily_credits"])
 	}
+	if s.Traffic != nil {
+		u := s.Traffic.Usage()
+		fmt.Fprintf(&b, "# HELP nearby_tomtom_requests_today TomTom requests used today (UTC).\n# TYPE nearby_tomtom_requests_today gauge\nnearby_tomtom_requests_today %v\n", u["requests_today"])
+	}
 	fmt.Fprintf(&b, "# HELP nearby_uptime_seconds Process uptime.\n# TYPE nearby_uptime_seconds gauge\nnearby_uptime_seconds %g\n", time.Since(started).Seconds())
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
