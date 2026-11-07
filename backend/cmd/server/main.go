@@ -34,6 +34,12 @@
 //	WS_MAX_CONNS            default 1000
 //	WS_MIN_INTERVAL         fastest update interval a client may ask for (default 1s)
 //	WS_ORIGINS              comma-separated browser origin patterns (default: any)
+//
+// Push alerts:
+//
+//	FCM_SERVICE_ACCOUNT_FILE  Firebase service-account JSON → push via FCM (Android + iOS)
+//	ALERT_WEBHOOK_URL         also/instead POST every alert as JSON here
+//	ALERT_INTERVAL            evaluation interval (default 30s); ALERT_COOLDOWN (default 1h)
 package main
 
 import (
@@ -48,6 +54,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dilshadahmad2/nearby-live/backend/internal/alerts"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/api"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/db"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/delay"
@@ -85,6 +92,9 @@ func run(log *slog.Logger) error {
 		srv := api.New(ix)
 		srv.Log = log
 		if err := setupLive(ctx, log, srv, nil); err != nil {
+			return err
+		}
+		if err := setupAlerts(ctx, log, srv, &alerts.MemStore{}); err != nil {
 			return err
 		}
 		return serve(ctx, log, srv)
@@ -127,6 +137,9 @@ func run(log *slog.Logger) error {
 	srv.AdminToken = os.Getenv("ADMIN_TOKEN")
 	srv.Log = log
 	if err := setupLive(ctx, log, srv, &delay.PgStore{DB: pool}); err != nil {
+		return err
+	}
+	if err := setupAlerts(ctx, log, srv, &alerts.PgStore{DB: pool}); err != nil {
 		return err
 	}
 	return serve(ctx, log, srv)
@@ -207,6 +220,31 @@ func setupLive(ctx context.Context, log *slog.Logger, srv *api.Server, store del
 		MinInterval:    dur("WS_MIN_INTERVAL", time.Second),
 		OriginPatterns: origins,
 	}}
+	return nil
+}
+
+// setupAlerts picks the push channel(s) and starts the alert worker.
+func setupAlerts(ctx context.Context, log *slog.Logger, srv *api.Server, store alerts.Store) error {
+	srv.Alerts = store
+	var notifiers alerts.Multi
+	if f := os.Getenv("FCM_SERVICE_ACCOUNT_FILE"); f != "" {
+		fcm, err := alerts.NewFCMFromFile(ctx, f)
+		if err != nil {
+			return err
+		}
+		notifiers = append(notifiers, fcm)
+	}
+	if u := os.Getenv("ALERT_WEBHOOK_URL"); u != "" {
+		notifiers = append(notifiers, &alerts.Webhook{URL: u})
+	}
+	var n alerts.Notifier = notifiers
+	if len(notifiers) == 0 {
+		n = alerts.LogNotifier{Log: log}
+	}
+	w := &alerts.Worker{Hub: srv.Hub, Store: store, Notifier: n, Log: log,
+		Interval: dur("ALERT_INTERVAL", 30*time.Second), Cooldown: dur("ALERT_COOLDOWN", time.Hour)}
+	go w.Run(ctx)
+	log.Info("alerts", "fcm", os.Getenv("FCM_SERVICE_ACCOUNT_FILE") != "", "webhook", os.Getenv("ALERT_WEBHOOK_URL") != "")
 	return nil
 }
 

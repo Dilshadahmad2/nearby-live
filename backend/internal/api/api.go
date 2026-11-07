@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dilshadahmad2/nearby-live/backend/internal/alerts"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/delay"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/geo"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/live"
@@ -48,6 +49,8 @@ type Server struct {
 	Refreshers live.Refreshers
 	// Stream serves GET /v1/live/ws (created from Hub/Sky when nil).
 	Stream *stream.Server
+	// Alerts stores push alert subscriptions (memory when nil).
+	Alerts alerts.Store
 
 	metrics *metrics
 }
@@ -97,6 +100,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/live/status", s.liveStatus)
 	mux.HandleFunc("GET /v1/live/{kind}/{id}", s.liveObject)
 	mux.HandleFunc("PUT /v1/admin/trains/{number}/delay", s.admin(s.putDelay))
+
+	if s.Alerts == nil {
+		s.Alerts = &alerts.MemStore{}
+	}
+	mux.HandleFunc("PUT /v1/alerts/subscriptions/{token}", s.putAlertSub)
+	mux.HandleFunc("GET /v1/alerts/subscriptions/{token}", s.getAlertSub)
+	mux.HandleFunc("DELETE /v1/alerts/subscriptions/{token}", s.deleteAlertSub)
 
 	mux.HandleFunc("PUT /v1/admin/stations/{code}", s.admin(s.putStation))
 	mux.HandleFunc("POST /v1/admin/reload", s.admin(s.reload))
@@ -618,6 +628,55 @@ func (s *Server) putDelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, st)
+}
+
+// ------------------------------------------------------------------ alerts
+
+// putAlertSub creates or updates a device's alert settings. The device's
+// push token is the key; only that device knows it.
+//
+//	PUT /v1/alerts/subscriptions/{token}
+//	{"platform":"android","location":{"lat":28.65,"lon":77.24},"train_km":2,"flight_km":3,
+//	 "late_min":30,"train_numbers":["12951"],"quiet_start":22,"quiet_end":7,"tz_offset_min":330}
+func (s *Server) putAlertSub(w http.ResponseWriter, r *http.Request) {
+	sub := alerts.Subscription{QuietStart: -1, QuietEnd: -1, TZOffsetMin: 330}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&sub); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	sub.DeviceToken = r.PathValue("token")
+	if err := sub.Validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	sub.UpdatedAt = s.Now()
+	if err := s.Alerts.Put(r.Context(), sub); err != nil {
+		s.Log.Error("save alert subscription", "err", err)
+		writeErr(w, http.StatusInternalServerError, "could not save")
+		return
+	}
+	writeJSON(w, http.StatusOK, sub)
+}
+
+func (s *Server) getAlertSub(w http.ResponseWriter, r *http.Request) {
+	sub, ok, err := s.Alerts.Get(r.Context(), r.PathValue("token"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not load")
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "no subscription for this device")
+		return
+	}
+	writeJSON(w, http.StatusOK, sub)
+}
+
+func (s *Server) deleteAlertSub(w http.ResponseWriter, r *http.Request) {
+	if err := s.Alerts.Delete(r.Context(), r.PathValue("token")); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not delete")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
 }
 
 func nonNil[T any](v []T) []T {

@@ -64,6 +64,8 @@ train_stops (train_number FK, seq, station_code, day, arrival_min, departure_min
             -- PK (train_number, seq); index on station_code
 train_live_status (train_number, journey_date, delay_min, last_station_code, lat, lon,
                    source, reported_at)   -- latest live status per journey
+alert_subscriptions (device_token PK, platform, lat, lon, train_km, flight_km, late_min,
+                     train_numbers[], quiet_start, quiet_end, tz_offset_min, updated_at)
 ```
 
 `arrival_min` / `departure_min` count minutes from 00:00 IST of the day the train leaves its
@@ -101,6 +103,9 @@ All responses are JSON. Lists look like `{"count": n, "items": [...]}`.
 | `GET /v1/live/status` | Feed health: counts, last update, last error, delay budget, OpenSky credits, open streams |
 | `GET /v1/live/ws` (WebSocket) | **Live stream** of everything near a point: a snapshot, then only changes |
 | `PUT /v1/admin/trains/{number}/delay` | Push a live delay / position for a train (admin) |
+| `PUT /v1/alerts/subscriptions/{device_token}` | Register or update a device's push alert settings |
+| `GET` / `DELETE /v1/alerts/subscriptions/{device_token}` | Read or remove them |
+| `GET /metrics` | Prometheus metrics |
 | `PUT /v1/admin/stations/{code}` | Add or fix a station (`Authorization: Bearer $ADMIN_TOKEN`) |
 | `POST /v1/admin/reload` | Reload the in-memory copy from the DB (admin) |
 
@@ -282,6 +287,34 @@ on the line.
 
 Check OpenSky's current terms and limits; commercial use needs their permission.
 
+### Push alerts
+
+Devices register what they want to hear about. A worker checks the hub every `ALERT_INTERVAL`
+(30 s) and sends:
+- **Train nearby:** any train within `train_km`, or only the listed `train_numbers`.
+- **Train running late:** a watched train at least `late_min` late. It is re-sent for every
+  further 15 minutes of delay.
+- **Flight overhead:** a flight within `flight_km`.
+
+Each alert is sent at most once per `ALERT_COOLDOWN` (1 h). Quiet hours are respected, and
+device tokens that FCM rejects are removed.
+
+```bash
+curl -X PUT localhost:8080/v1/alerts/subscriptions/$FCM_TOKEN -d '{
+  "platform": "android", "location": {"lat": 28.654, "lon": 77.241},
+  "train_km": 2, "flight_km": 3, "late_min": 30, "train_numbers": ["12951"],
+  "quiet_start": 22, "quiet_end": 7, "tz_offset_min": 330}'
+```
+
+Delivery channels:
+- **FCM:** set `FCM_SERVICE_ACCOUNT_FILE` (a Firebase service-account JSON key). FCM covers
+  Android and iOS; upload your APNs key in the Firebase console.
+- **Webhook:** set `ALERT_WEBHOOK_URL` and every alert is also POSTed there as JSON.
+- **Neither set:** alerts are only logged.
+
+The app sends PUT again when the user moves. Its local notifications use the same rules (see
+`app/README.md`).
+
 ### Fixing station data
 
 ```bash
@@ -311,6 +344,8 @@ Re-seeding keeps coordinates added this way when the source has none.
 | `WS_MAX_CONNS` / `WS_MIN_INTERVAL` / `WS_ORIGINS` | `1000` / `1s` / any | WebSocket stream limits |
 | `WEATHER_MAX_AGE` | `10m` | Weather cache per cell |
 | `TOMTOM_KEY` / `TOMTOM_DAILY_REQUESTS` / `TRAFFIC_MAX_AGE` | — / `2000` / `3m` | Traffic layer (off without a key) |
+| `FCM_SERVICE_ACCOUNT_FILE` / `ALERT_WEBHOOK_URL` | — | Push alert delivery |
+| `ALERT_INTERVAL` / `ALERT_COOLDOWN` | `30s` / `1h` | Alert evaluation |
 
 ## Deploy
 

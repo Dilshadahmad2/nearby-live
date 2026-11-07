@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
+import 'features/alerts/alerts.dart';
 import 'features/lists/category_list_screen.dart';
 import 'features/nearby/presentation/nearby_screen.dart';
 import 'features/nearby/presentation/widgets/chrome.dart';
@@ -40,6 +41,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(alertsRunnerProvider); // local alert notifications
     final w = MediaQuery.sizeOf(context).width;
     final pad = MediaQuery.paddingOf(context);
     final scale = (w / 512).clamp(.75, 1.2);

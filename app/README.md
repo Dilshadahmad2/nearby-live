@@ -127,6 +127,22 @@ lib/
   needed so the range circle fits the screen width. At 10 km and 50 km the 3D models switch to
   pin/icon mode.
 
+## Alerts
+
+**Settings → Alerts** turns on notifications for:
+- a train within 1 / 2 / 5 km, either any train or only your watched train numbers;
+- a flight within 2 / 5 km;
+- a watched train running 15 / 30 / 60 min late.
+
+Quiet hours (22:00–07:00) are optional. Each alert repeats at most once an hour.
+
+The app shows these as **local notifications** while it is running.
+
+The backend can also deliver the same alerts as **push notifications** while the app is closed
+(`PUT /v1/alerts/subscriptions/{token}`, through FCM). That needs a Firebase project:
+1. Add `firebase_messaging`, `google-services.json` and `GoogleService-Info.plist`.
+2. Send the FCM token and the user's alert settings to the backend.
+
 ## Map styles
 
 * `assets/styles/satellite.json` (default): Esri imagery, faint neon roads, 50 %-opacity 3D buildings coloured by height.

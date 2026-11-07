@@ -16,6 +16,7 @@ dependencies:
   google_fonts: ^6.2.1
   maplibre_gl: ^0.22.0
   web_socket_channel: ^3.0.3
+  flutter_local_notifications: ^23.0.0
 
 dev_dependencies:
   flutter_test:

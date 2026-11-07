@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/config.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../alerts/alerts.dart';
 import 'settings_controller.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -48,6 +49,8 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: const Text('Replay the 40-second scenario near Red Fort instead of your real location. '
                 'Used automatically when location permission is denied.'),
           ),
+          const _Header('Alerts'),
+          const _AlertsSection(),
           const _Header('Accessibility'),
           SwitchListTile(
             value: s.reduceMotion,
@@ -126,3 +129,62 @@ class _StyleTile extends StatelessWidget {
         subtitle: Text(subtitle),
       );
 }
+
+class _AlertsSection extends ConsumerWidget {
+  const _AlertsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final a = ref.watch(alertSettingsProvider);
+    final c = ref.read(alertSettingsProvider.notifier);
+    Widget choice<T>(String label, T value, List<(T, String)> options, ValueChanged<T> onChanged) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+          child: Row(children: [
+            Expanded(child: Text(label)),
+            SegmentedButton<T>(
+              showSelectedIcon: false,
+              segments: [for (final (v, l) in options) ButtonSegment(value: v, label: Text(l))],
+              selected: {value},
+              onSelectionChanged: a.enabled ? (v) => onChanged(v.first) : null,
+            ),
+          ]),
+        );
+    return Column(children: [
+      SwitchListTile(
+        value: a.enabled,
+        onChanged: (v) => c.update(a.copyWith(enabled: v)),
+        title: const Text('Alerts & notifications'),
+        subtitle: const Text('Trains nearby, flights overhead, watched trains running late'),
+      ),
+      choice<double>('Train within', a.trainKm, const [(0, 'Off'), (1, '1 km'), (2, '2 km'), (5, '5 km')],
+          (v) => c.update(a.copyWith(trainKm: v))),
+      choice<double>('Flight within', a.flightKm, const [(0, 'Off'), (2, '2 km'), (5, '5 km')],
+          (v) => c.update(a.copyWith(flightKm: v))),
+      choice<int>('Watched train late by', a.lateMin, const [(0, 'Off'), (15, '15m'), (30, '30m'), (60, '1h')],
+          (v) => c.update(a.copyWith(lateMin: v))),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+        child: TextFormField(
+          enabled: a.enabled,
+          initialValue: a.watchedTrains.join(', '),
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Watched train numbers',
+            hintText: 'e.g. 12951, 12002 (empty = any train)',
+          ),
+          onFieldSubmitted: (v) => c.update(a.copyWith(watchedTrains: parseTrainNumbers(v))),
+        ),
+      ),
+      SwitchListTile(
+        value: a.quietStart >= 0,
+        onChanged: a.enabled ? (v) => c.update(a.copyWith(quietStart: v ? 22 : -1, quietEnd: v ? 7 : -1)) : null,
+        title: const Text('Quiet hours (22:00–07:00)'),
+      ),
+    ]);
+  }
+}
+
+/// "12951, 12002 abc" → ["12951", "12002"].
+List<String> parseTrainNumbers(String v) =>
+    RegExp(r'\d{4,5}').allMatches(v).map((m) => m.group(0)!).toSet().toList();
+

@@ -5,6 +5,8 @@
     <!-- Foreground location only: objects are shown relative to the user. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Alerts: train nearby, flight overhead, train running late (Android 13+ asks at runtime). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:label="Nearby Live"
