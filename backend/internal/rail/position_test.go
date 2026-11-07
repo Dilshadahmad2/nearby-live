@@ -149,11 +149,24 @@ func TestNearbyTrains(t *testing.T) {
 	ix := testIndex()
 	// 10:30 the train is ~28 km north of AAA.
 	at := ist(10, 30)
-	got := ix.NearbyTrains(geo.Point{Lat: 28.25, Lon: 77}, 5, at, 10)
+	got := ix.NearbyTrains(geo.Point{Lat: 28.25, Lon: 77}, 5, at, 10, nil)
 	if len(got) != 1 || got[0].Train.Number != "10001" {
 		t.Fatalf("nearby trains = %+v", got)
 	}
-	if len(ix.NearbyTrains(geo.Point{Lat: 28.9, Lon: 77}, 5, at, 10)) != 0 {
+	if len(ix.NearbyTrains(geo.Point{Lat: 28.9, Lon: 77}, 5, at, 10, nil)) != 0 {
 		t.Fatal("train should not be near CCC at 10:30")
+	}
+}
+
+func TestNearbyTrainsAppliesDelay(t *testing.T) {
+	ix := testIndex()
+	at := ist(10, 30)
+	// 30 minutes late: at 10:30 it is still at AAA, not 28 km north.
+	late := func(string) time.Duration { return 30 * time.Minute }
+	if got := ix.NearbyTrains(geo.Point{Lat: 28.25, Lon: 77}, 5, at, 10, late); len(got) != 0 {
+		t.Fatalf("late train should not be near 28.25: %+v", got)
+	}
+	if got := ix.NearbyTrains(geo.Point{Lat: 28.0, Lon: 77}, 3, at.Add(time.Minute), 10, late); len(got) != 1 || got[0].Position.DelayMin != 30 {
+		t.Fatalf("late train near AAA: %+v", got)
 	}
 }

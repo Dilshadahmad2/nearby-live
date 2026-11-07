@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dilshadahmad2/nearby-live/backend/internal/geo"
+	"github.com/dilshadahmad2/nearby-live/backend/internal/live"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/rail"
 )
 
@@ -85,5 +86,62 @@ func TestEndpoints(t *testing.T) {
 
 	if code, _ := get(t, h, "PUT", "/v1/admin/stations/AAA", `{"name":"x"}`); code != 403 {
 		t.Fatalf("admin without token: %d", code)
+	}
+}
+
+func authed(t *testing.T, h http.Handler, method, url, body string) (int, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(method, url, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec.Code, out
+}
+
+func TestDelayPushShiftsPositionAndLive(t *testing.T) {
+	s := testServer()
+	s.AdminToken = "tok"
+	s.Delays.SetClock(s.Now)
+	h := s.Handler()
+
+	if code, _ := authed(t, h, "PUT", "/v1/admin/trains/10001/delay", `{"delay_min": 60, "last_station_code": "aaa"}`); code != 200 {
+		t.Fatalf("push: %d", code)
+	}
+	// 11:00 with a 60 min delay = the train is just leaving AAA.
+	code, body := get(t, h, "GET", "/v1/trains/10001/position", "")
+	pos := body["position"].(map[string]any)
+	if code != 200 || pos["delay_min"].(float64) != 60 {
+		t.Fatalf("position: %d %v", code, body)
+	}
+	if lat := pos["location"].(map[string]any)["lat"].(float64); lat > 28.01 {
+		t.Fatalf("late train lat = %v", lat)
+	}
+	if body["live_status"].(map[string]any)["last_station_code"] != "AAA" {
+		t.Fatalf("live_status: %v", body["live_status"])
+	}
+	// delay_min overrides.
+	_, body = get(t, h, "GET", "/v1/trains/10001/position?delay_min=0", "")
+	if lat := body["position"].(map[string]any)["location"].(map[string]any)["lat"].(float64); lat < 28.49 {
+		t.Fatalf("override lat = %v", lat)
+	}
+
+	// The live hub: publish trains and query around AAA.
+	src := &live.TrainSource{Hub: s.Hub, Index: s.Index, Delays: s.Delays, Now: s.Now}
+	s.Hub.Replace(live.KindTrain, "timetable", src.Snapshot())
+	code, body = get(t, h, "GET", "/v1/live?lat=28&lon=77&radius_km=5&types=trains", "")
+	if code != 200 || body["count"].(float64) != 1 {
+		t.Fatalf("live: %d %v", code, body)
+	}
+	item := body["items"].([]any)[0].(map[string]any)
+	if item["kind"] != "train" || item["delay_min"].(float64) != 60 {
+		t.Fatalf("live item: %v", item)
+	}
+	if code, _ := get(t, h, "GET", "/v1/live/train/10001", ""); code != 200 {
+		t.Fatalf("live object: %d", code)
+	}
+	if code, _ := get(t, h, "GET", "/v1/live/status", ""); code != 200 {
+		t.Fatalf("status: %d", code)
 	}
 }

@@ -1,8 +1,15 @@
 # Nearby Live backend
 
-A Go + PostgreSQL API that holds **every Indian Railways station with its geo location**, plus
-trains and their full timetables. It uses them to work out where a train is right now: from its
-schedule, or from live "last station / next station" data sent by a provider.
+A Go + PostgreSQL service that holds **every Indian Railways station with its geo location**, plus
+trains and their full timetables. On top of that it runs a **live hub**: the current position of
+every train in India and every aircraft over India, kept in memory and answered by area:
+
+* `/v1/live?lat&lon&radius_km&types=train,flight`
+* `/v1/live/bbox`
+
+Train positions come from the timetable, shifted by **live delays** from a configurable delay
+API or from any feed that pushes them. Flights come from OpenSky, with one shared credit budget
+for all users.
 
 The Flutter app (`../app`) uses it for the Trains layer when built with
 `--dart-define=BACKEND_URL=…`.
@@ -55,6 +62,8 @@ trains      (number PK, name, type, zone, from_code, to_code, departure, arrival
              duration_min, distance_km, return_train)
 train_stops (train_number FK, seq, station_code, day, arrival_min, departure_min)
             -- PK (train_number, seq); index on station_code
+train_live_status (train_number, journey_date, delay_min, last_station_code, lat, lon,
+                   source, reported_at)   -- latest live status per journey
 ```
 
 `arrival_min` / `departure_min` count minutes from 00:00 IST of the day the train leaves its
@@ -84,7 +93,13 @@ All responses are JSON. Lists look like `{"count": n, "items": [...]}`.
 | `GET /v1/trains/{number}/route` | Timetable with each stop's location |
 | `GET /v1/trains/{number}/position?at=RFC3339&delay_min=0` | Estimated position from the timetable |
 | `GET /v1/trains/nearby?lat=&lon=&radius_km=5&at=` | Trains estimated to be within the radius now (used by the app) |
+| `GET /v1/trains/{number}/live` | Same, after fetching a fresh live delay from the provider |
 | `POST /v1/position/estimate` | Position from live stop data (below) |
+| `GET /v1/live?lat=&lon=&radius_km=10&types=train,flight&limit=100` | **Everything live near a point**, nearest first |
+| `GET /v1/live/bbox?south=&west=&north=&east=&types=` | Everything live in a map viewport |
+| `GET /v1/live/{kind}/{id}` | One object, e.g. `/v1/live/train/12951`, `/v1/live/flight/800c1b` |
+| `GET /v1/live/status` | Feed health: counts, last update, last error, delay budget, OpenSky credits |
+| `PUT /v1/admin/trains/{number}/delay` | Push a live delay / position for a train (admin) |
 | `PUT /v1/admin/stations/{code}` | Add or fix a station (`Authorization: Bearer $ADMIN_TOKEN`) |
 | `POST /v1/admin/reload` | Reload the in-memory copy from the DB (admin) |
 
@@ -134,6 +149,88 @@ curl -X POST localhost:8080/v1/position/estimate -H 'Content-Type: application/j
 }'
 ```
 
+## Live data
+
+### The live hub
+
+```
+                     ┌─────────────── live hub (memory, 0.5° grid) ───────────────┐
+ timetable + delays ─▶ trains   (every train in India, recomputed every 30 s)       │──▶ /v1/live
+ OpenSky             ─▶ flights  (India sweep + on-demand refresh around requests)  │──▶ /v1/live/bbox
+ (next: traffic, events, buses, ships …)                                            │──▶ /v1/live/{kind}/{id}
+                     └────────────────────────────────────────────────────────────┘
+```
+
+Each object has `id`, `kind`, `location`, `heading_deg`, `speed_kmh`, `label`, `name`,
+`status` and `source`. Depending on the kind it also has `altitude_m`, `delay_min` and
+`prev_stop`/`next_stop`.
+
+Flights are dead-reckoned to the request time (capped at 3 minutes) and dropped after 5 minutes
+without a fix. A new kind only needs a source that calls `hub.Replace` (full snapshot) or
+`hub.Upsert` (regional updates).
+
+```bash
+curl 'localhost:8080/v1/live?lat=28.654&lon=77.241&radius_km=5&types=train,flight'
+```
+
+### Live train delays
+
+There is no free official Indian live-train API. The backend accepts live status two ways.
+Positions use the most recent status less than 6 hours old. If the status includes coordinates
+less than 10 minutes old, those replace the timetable estimate.
+
+**1. A delay API you subscribe to.** Delays are fetched on demand: by
+`/v1/trains/{n}/live`, `/v1/trains/{n}/position?live=1` and `/v1/trains/nearby?live=1` (nearest 5
+trains). They are cached for `DELAY_TTL`, duplicate requests are merged, and calls are capped by
+`DELAY_DAILY_LIMIT`. Results are stored in `train_live_status`.
+
+Providers change their response formats, so nothing is hard-coded. You set the URL, the headers
+and the JSON paths:
+
+| Variable | Example |
+|---|---|
+| `DELAY_PROVIDER_URL` | `https://example-provider/api/live?trainNo={number}&startDay={start_day}` |
+| `DELAY_PROVIDER_HEADERS` | `X-RapidAPI-Key: <key>; X-RapidAPI-Host: <host>` |
+| `DELAY_PATH` | `data.delay` (minutes; also accepts `"15 min"`, `"1h 5m"`, `"01:05"`, `"On Time"`) |
+| `DELAY_STATION_PATH` | `data.current_station_code` (optional) |
+| `DELAY_LAT_PATH` / `DELAY_LON_PATH` | live coordinates, if the provider has them (optional) |
+| `DELAY_OK_PATH` / `DELAY_MESSAGE_PATH` | e.g. `status` / `message` (optional) |
+
+URL placeholders: `{number}`, `{date}` (YYYY-MM-DD), `{date_compact}`, `{date_dmy}`, and
+`{start_day}` (0 = left origin today IST, 1 = yesterday, …).
+
+> Check the field paths against a real response from your plan before going live. RapidAPI's
+> IRCTC APIs and RailRadar both return delay and current-station fields, but their names were
+> not verified for this code. The provider adapter is `internal/delay/http_provider.go`.
+
+Respect each provider's terms. Do not scrape sites whose terms forbid it.
+
+**2. Push from any feed** (your own job, a partner feed, GPS on the train):
+
+```bash
+curl -X PUT localhost:8080/v1/admin/trains/12951/delay -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"delay_min": 25, "last_station_code": "KOTA", "location": {"lat": 25.18, "lon": 75.83}, "source": "partner"}'
+```
+
+`journey_date` (YYYY-MM-DD) is optional. Without it, the report applies to the journey currently
+on the line.
+
+### Flights (OpenSky)
+
+* **Sweep:** a background sweep of `OPENSKY_BBOX` (India by default) runs about every
+  `OPENSKY_SWEEP_INTERVAL`. By default that interval is set so the sweeps use half the daily
+  credits.
+* **On demand:** each `/v1/live` request that includes flights refreshes the area around the
+  request when it is older than 30 s. A small box costs 1 credit.
+* **Budget:** credits are counted per UTC day. Requests stop at the budget and back off on HTTP
+  429 (`X-Rate-Limit-Retry-After-Seconds`).
+* **Credentials:** set `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` (OAuth2 client credentials
+  from an OpenSky account) for a much larger budget than anonymous access.
+  `OPENSKY_DAILY_CREDITS` defaults to 4000 with credentials and 400 without.
+
+Check OpenSky's current terms and limits; commercial use needs their permission.
+
 ### Fixing station data
 
 ```bash
@@ -154,9 +251,17 @@ Re-seeding keeps coordinates added this way when the source has none.
 | `SEED_IF_EMPTY` | `true` | Seed on start when `stations` is empty |
 | `ADMIN_TOKEN` | — | Enables the admin endpoints |
 | `LOG_LEVEL` | `info` | `debug` logs every request |
+| `LIVE_TRAINS_INTERVAL` | `30s` | How often all train positions are recomputed |
+| `DELAY_PROVIDER_URL`, `DELAY_PROVIDER_HEADERS`, `DELAY_PATH`, … | — | Live delay API (see above) |
+| `DELAY_TTL` / `DELAY_DAILY_LIMIT` | `3m` / `500` | Cache time and daily request cap for the delay API |
+| `LIVE_FLIGHTS` | `true` | OpenSky feed on or off |
+| `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` | — | OAuth2 client credentials |
+| `OPENSKY_DAILY_CREDITS` / `OPENSKY_SWEEP_INTERVAL` / `OPENSKY_BBOX` | auto / auto / India | |
 
 ## Limits
 
 * The timetable is a 2016 snapshot without running days. Trains are assumed to run daily and on
-  time unless `delay_min` is given. Plug live data in through `POST /v1/position/estimate`.
+  time unless a live delay is known.
+* State is held in one process. To run several instances, put the hub behind Redis (GEO commands)
+  or PostGIS, and run the feeds as one worker.
 * Positions follow straight lines between stations; the app snaps them to the real track.

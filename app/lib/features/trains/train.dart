@@ -23,6 +23,7 @@ class Train {
     required this.fixTime,
     this.status = TrainStatus.moving,
     this.estimated = true,
+    this.delayMin,
   });
 
   final String id;
@@ -45,6 +46,18 @@ class Train {
 
   /// True when the position is estimated (mock / schedule interpolation).
   final bool estimated;
+
+  /// Live delay in minutes when a live status is known (null = no live data).
+  final int? delayMin;
+
+  /// "Moving · 12 min late", "Moving · On time", or just "Moving".
+  String get statusText {
+    final base = trainStatusLabel(status);
+    final d = delayMin;
+    if (d == null) return base;
+    if (d <= 0) return '$base · On time';
+    return '$base · $d min late';
+  }
 
   String get subtitle => '$name ($from → $to)';
 }

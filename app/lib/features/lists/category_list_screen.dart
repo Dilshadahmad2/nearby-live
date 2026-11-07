@@ -10,7 +10,6 @@ import '../demo/demo_director.dart';
 import '../nearby/application/nearby_controller.dart';
 import '../nearby/scene/scene.dart';
 import '../traffic/traffic.dart';
-import '../trains/train.dart';
 import '../weather/weather.dart';
 
 /// Simple list screen for one category (bottom-nav tabs other than Nearby).
@@ -103,7 +102,7 @@ class _CategoryListScreenState extends ConsumerState<CategoryListScreen> {
               colour: AppColors.train,
               icon: Icons.train_rounded,
               title: '${r.item.name} · ${r.item.number}',
-              subtitle: '${r.item.from} → ${r.item.to} · ${trainStatusLabel(r.item.status)}${r.item.estimated ? ' (estimated)' : ''}',
+              subtitle: '${r.item.from} → ${r.item.to} · ${r.item.statusText}${r.item.estimated ? ' (estimated)' : ''}',
               km: r.distanceKm,
               inRange: r.distanceKm <= range,
             ),

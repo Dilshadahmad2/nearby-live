@@ -21,7 +21,8 @@ Optional live road traffic (TomTom Traffic Flow, free tier):
 flutter run --dart-define=TOMTOM_KEY=your_tomtom_key
 ```
 
-Use the backend (`../backend`) for timetable-based trains near you:
+Use the backend (`../backend`). Trains then come from the timetable plus live delays, and flights
+come from the backend's live hub instead of each phone calling OpenSky:
 
 ```bash
 flutter run --dart-define=BACKEND_URL=http://10.0.2.2:8080   # Android emulator → host
@@ -61,7 +62,7 @@ The app is keyless except for the optional TomTom key.
 | Satellite imagery | Esri World Imagery raster | none | "Imagery © Esri, Maxar, Earthstar Geographics" |
 | Vector tiles, 3D buildings | OpenFreeMap (`https://tiles.openfreemap.org/planet`, OpenMapTiles schema) | none | `render_height` drives the extrusions |
 | Weather | Open-Meteo `/v1/forecast?current=…` | none | polled every 10 min |
-| Flights | OpenSky `/api/states/all` (anonymous) | none | bbox from range, 20 s polls, dead reckoning, exponential back-off on HTTP 429 |
+| Flights | OpenSky `/api/states/all` (anonymous), or the backend's `/v1/live?types=flight` with `BACKEND_URL` | none | bbox from range, 20 s polls, dead reckoning, exponential back-off on HTTP 429 |
 | Flight route text | adsbdb.com callsign lookup | none | cached per callsign |
 | Rail geometry | Overpass API (`railway=rail`) | none | ways stitched into continuous routes, cached per area |
 | Trains | `TrainDataSource` → `BackendTrainSource` (with `BACKEND_URL`) or `MockTrainSource` | — | the backend estimates positions from the Indian Railways timetable and station coordinates (8,990 stations); the app snaps them onto the real OSM rail line. Without a backend, the mock runs named trains along real rail lines |

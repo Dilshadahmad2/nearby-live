@@ -9,6 +9,22 @@
 //	SEED_IF_EMPTY  load the CSVs when the stations table is empty (default true)
 //	ADMIN_TOKEN    enables PUT /v1/admin/stations/{code} and POST /v1/admin/reload
 //	LOG_LEVEL      debug | info (default info)
+//
+// Live data (see README "Live data"):
+//
+//	LIVE_TRAINS_INTERVAL    recompute all train positions (default 30s)
+//	DELAY_PROVIDER_URL      live delay API URL template ({number}, {date}, {start_day}, …)
+//	DELAY_PROVIDER_NAME     label for the source (default "http")
+//	DELAY_PROVIDER_HEADERS  "Header: value; Other: value" (API keys go here)
+//	DELAY_PATH              JSON path of the delay in minutes (e.g. data.delay)
+//	DELAY_STATION_PATH, DELAY_LAT_PATH, DELAY_LON_PATH, DELAY_OK_PATH, DELAY_MESSAGE_PATH
+//	DELAY_TTL               refetch after (default 3m)
+//	DELAY_DAILY_LIMIT       provider requests per day (default 500)
+//	LIVE_FLIGHTS            enable the OpenSky feed (default true)
+//	OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET   OAuth2 client credentials (optional)
+//	OPENSKY_DAILY_CREDITS   default 400 anonymous / 4000 with credentials
+//	OPENSKY_SWEEP_INTERVAL  default: derived from the credit budget
+//	OPENSKY_BBOX            south,west,north,east (default India)
 package main
 
 import (
@@ -18,11 +34,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/dilshadahmad2/nearby-live/backend/internal/api"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/db"
+	"github.com/dilshadahmad2/nearby-live/backend/internal/delay"
+	"github.com/dilshadahmad2/nearby-live/backend/internal/geo"
+	"github.com/dilshadahmad2/nearby-live/backend/internal/live"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/rail"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/seed"
 )
@@ -53,6 +74,9 @@ func run(log *slog.Logger) error {
 		}
 		srv := api.New(ix)
 		srv.Log = log
+		if err := setupLive(ctx, log, srv, nil); err != nil {
+			return err
+		}
 		return serve(ctx, log, srv)
 	}
 	pool, err := db.Open(ctx, url)
@@ -92,7 +116,101 @@ func run(log *slog.Logger) error {
 	srv.Write = store.UpsertStation
 	srv.AdminToken = os.Getenv("ADMIN_TOKEN")
 	srv.Log = log
+	if err := setupLive(ctx, log, srv, &delay.PgStore{DB: pool}); err != nil {
+		return err
+	}
 	return serve(ctx, log, srv)
+}
+
+// setupLive configures live delays and starts the background feeds.
+func setupLive(ctx context.Context, log *slog.Logger, srv *api.Server, store delay.Store) error {
+	var provider delay.Provider
+	if u := os.Getenv("DELAY_PROVIDER_URL"); u != "" {
+		if os.Getenv("DELAY_PATH") == "" {
+			return errors.New("DELAY_PATH is required with DELAY_PROVIDER_URL")
+		}
+		provider = &delay.HTTPProvider{
+			ProviderName: env("DELAY_PROVIDER_NAME", "http"),
+			URLTemplate:  u,
+			Headers:      parseHeaders(os.Getenv("DELAY_PROVIDER_HEADERS")),
+			DelayPath:    os.Getenv("DELAY_PATH"),
+			StationPath:  os.Getenv("DELAY_STATION_PATH"),
+			LatPath:      os.Getenv("DELAY_LAT_PATH"),
+			LonPath:      os.Getenv("DELAY_LON_PATH"),
+			OKPath:       os.Getenv("DELAY_OK_PATH"),
+			MessagePath:  os.Getenv("DELAY_MESSAGE_PATH"),
+		}
+	}
+	limit, _ := strconv.Atoi(env("DELAY_DAILY_LIMIT", "500"))
+	srv.Delays = delay.NewService(provider, store, delay.Config{TTL: dur("DELAY_TTL", 3*time.Minute), DailyLimit: limit})
+	if err := srv.Delays.Warm(ctx); err != nil {
+		log.Warn("load recent delays", "err", err)
+	}
+	log.Info("live delays", "provider", srv.Delays.ProviderName(), "daily_limit", limit)
+
+	trains := &live.TrainSource{Hub: srv.Hub, Index: srv.Index, Delays: srv.Delays,
+		Interval: dur("LIVE_TRAINS_INTERVAL", 30*time.Second), Log: log}
+	go trains.Run(ctx)
+
+	if env("LIVE_FLIGHTS", "true") == "true" {
+		credits, _ := strconv.Atoi(os.Getenv("OPENSKY_DAILY_CREDITS"))
+		box := live.DefaultIndiaBBox
+		if v := os.Getenv("OPENSKY_BBOX"); v != "" {
+			b, err := parseBBox(v)
+			if err != nil {
+				return err
+			}
+			box = b
+		}
+		sky := &live.OpenSky{
+			Hub:           srv.Hub,
+			Coverage:      box,
+			DailyCredits:  credits,
+			SweepInterval: dur("OPENSKY_SWEEP_INTERVAL", 0),
+			ClientID:      os.Getenv("OPENSKY_CLIENT_ID"),
+			ClientSecret:  os.Getenv("OPENSKY_CLIENT_SECRET"),
+			Log:           log,
+		}
+		srv.Sky = sky
+		go sky.Run(ctx)
+	}
+	return nil
+}
+
+func parseHeaders(v string) map[string]string {
+	out := map[string]string{}
+	for _, part := range strings.Split(v, ";") {
+		k, val, ok := strings.Cut(part, ":")
+		if ok && strings.TrimSpace(k) != "" {
+			out[strings.TrimSpace(k)] = strings.TrimSpace(val)
+		}
+	}
+	return out
+}
+
+func parseBBox(v string) (geo.BBox, error) {
+	parts := strings.Split(v, ",")
+	if len(parts) != 4 {
+		return geo.BBox{}, errors.New("OPENSKY_BBOX must be south,west,north,east")
+	}
+	var f [4]float64
+	for i, p := range parts {
+		x, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+		if err != nil {
+			return geo.BBox{}, errors.New("OPENSKY_BBOX must be south,west,north,east")
+		}
+		f[i] = x
+	}
+	return geo.BBox{South: f[0], West: f[1], North: f[2], East: f[3]}, nil
+}
+
+func dur(k string, def time.Duration) time.Duration {
+	if v := os.Getenv(k); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return def
 }
 
 func serve(ctx context.Context, log *slog.Logger, srv *api.Server) error {

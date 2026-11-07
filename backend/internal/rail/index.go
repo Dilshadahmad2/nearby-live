@@ -72,6 +72,16 @@ func (ix *Index) Station(code string) *Station {
 // Train by number, or nil.
 func (ix *Index) Train(number string) *Train { return ix.trains[strings.TrimSpace(number)] }
 
+// TrainNumbers lists every train that has a timetable.
+func (ix *Index) TrainNumbers() []string {
+	out := make([]string, 0, len(ix.stops))
+	for n := range ix.stops {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Stops of a train in route order.
 func (ix *Index) Stops(number string) []Stop { return ix.stops[strings.TrimSpace(number)] }
 
@@ -175,6 +185,9 @@ func (ix *Index) TrainsAtStation(code string) []string {
 // StationLookup adapts the index for [Timeline].
 func (ix *Index) StationLookup(code string) *Station { return ix.stations[code] }
 
+// DelayFunc returns the live delay to apply to a train (0 when unknown).
+type DelayFunc func(number string) time.Duration
+
 // TrainPosition estimates where train number is at time at.
 func (ix *Index) TrainPosition(number string, at time.Time, delay time.Duration) (Position, bool) {
 	stops := ix.Stops(number)
@@ -195,8 +208,9 @@ type NearbyTrain struct {
 
 // NearbyTrains estimates every train whose route touches a station within
 // radiusKm (+ 60 km for long non-stop runs) and keeps those whose
-// estimated position is within radiusKm, nearest first.
-func (ix *Index) NearbyTrains(p geo.Point, radiusKm float64, at time.Time, limit int) []NearbyTrain {
+// estimated position is within radiusKm, nearest first. delayFor (may be
+// nil) supplies live delays.
+func (ix *Index) NearbyTrains(p geo.Point, radiusKm float64, at time.Time, limit int, delayFor DelayFunc) []NearbyTrain {
 	const margin = 60.0
 	cands := map[string]bool{}
 	for _, s := range ix.NearbyStations(p, radiusKm+margin, 0) {
@@ -206,7 +220,11 @@ func (ix *Index) NearbyTrains(p geo.Point, radiusKm float64, at time.Time, limit
 	}
 	var out []NearbyTrain
 	for n := range cands {
-		pos, ok := ix.TrainPosition(n, at, 0)
+		var delay time.Duration
+		if delayFor != nil {
+			delay = delayFor(n)
+		}
+		pos, ok := ix.TrainPosition(n, at, delay)
 		if !ok || pos.Point == nil || (pos.Status != StatusRunning && pos.Status != StatusAtStation) {
 			continue
 		}

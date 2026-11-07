@@ -7,6 +7,7 @@ import '../../../core/config.dart';
 import '../../../core/geo/geo_point.dart';
 import '../../../core/geo/geo_utils.dart';
 import '../../flights/flight.dart';
+import '../../flights/flight_source.dart';
 import '../../flights/opensky_api.dart';
 import '../../location/location_repository.dart';
 import '../../settings/settings_controller.dart';
@@ -283,8 +284,7 @@ class NearbyController extends Notifier<NearbyState> {
     var next = _flightBackoff.current;
     try {
       // Query a little beyond the range so planes are tracked before they enter.
-      final box = boundingBox(u, state.rangeKm * 1.5 + 5);
-      final fixes = await ref.read(openSkyApiProvider).states(box);
+      final fixes = await ref.read(flightDataSourceProvider).states(u, state.rangeKm * 1.5 + 5);
       final now = DateTime.now();
       final byId = {for (final f in state.flights) f.state.icao24: f};
       final tracks = <FlightTrack>[];

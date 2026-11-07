@@ -138,7 +138,7 @@ class LiveDirector implements SceneDirector {
       cards[NearbyKind.train] = CardInfo(
         title: 'Train',
         subtitle: '${t.item.name}\n(${t.item.from} → ${t.item.to})',
-        status: trainStatusLabel(t.item.status) + (t.item.estimated ? ' · est.' : ''),
+        status: t.item.delayMin != null ? t.item.statusText : trainStatusLabel(t.item.status) + (t.item.estimated ? ' · est.' : ''),
         distanceKm: t.distanceKm,
         moreCount: shownTrains.length - 1,
       );

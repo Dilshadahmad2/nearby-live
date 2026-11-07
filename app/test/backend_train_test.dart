@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nearby_live/core/geo/geo_point.dart';
 import 'package:nearby_live/core/geo/geo_utils.dart';
+import 'package:nearby_live/features/flights/flight_source.dart';
 import 'package:nearby_live/features/trains/backend_train_source.dart';
 import 'package:nearby_live/features/trains/train.dart';
 
@@ -21,6 +22,7 @@ void main() {
           'next_stop': {'code': 'SHZM', 'location': {'lat': 28.672, 'lon': 77.259}},
         },
         'distance_km': 1.4,
+        'live_status': {'train_number': '54473', 'delay_min': 12, 'source': 'push'},
       },
       {
         'train': {'number': '1'},
@@ -40,6 +42,41 @@ void main() {
     expect(e.speedKmh, 36);
     expect(e.prevCode, 'DSB');
     expect(e.nextPoint, const GeoPoint(28.672, 77.259));
+    expect(e.delayMin, 12);
+  });
+
+  test('train status text shows the live delay', () {
+    final t = snapToRail(parseNearbyTrains(json).single, const [], DateTime.utc(2026));
+    expect(t.delayMin, 12);
+    expect(t.statusText, 'Moving · 12 min late');
+  });
+
+  test('parses flights from the live hub', () {
+    final received = DateTime.utc(2026, 11, 7, 12);
+    final flights = parseBackendFlights({
+      'count': 2,
+      'items': [
+        {
+          'id': '800c1b',
+          'kind': 'flight',
+          'label': 'AIC138',
+          'location': {'lat': 28.62, 'lon': 77.21},
+          'heading_deg': 245.0,
+          'speed_kmh': 648.0,
+          'altitude_m': 3350.0,
+          'extra': {'country': 'India'},
+        },
+        {'id': '12951', 'kind': 'train', 'location': {'lat': 1, 'lon': 2}},
+      ],
+    }, received);
+    expect(flights.length, 1);
+    final f = flights.single;
+    expect(f.icao24, '800c1b');
+    expect(f.callsign, 'AIC138');
+    expect(f.velocityMs, closeTo(180, 1e-9));
+    expect(f.trackDeg, 245);
+    expect(f.fixTime, received);
+    expect(f.originCountry, 'India');
   });
 
   test('snaps onto a nearby rail line oriented along the bearing', () {

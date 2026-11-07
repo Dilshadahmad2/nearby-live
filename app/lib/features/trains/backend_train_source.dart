@@ -24,6 +24,7 @@ class BackendTrainEstimate {
     this.nextCode,
     this.prevPoint,
     this.nextPoint,
+    this.delayMin,
   });
 
   final String number;
@@ -41,6 +42,9 @@ class BackendTrainEstimate {
   final String? nextCode;
   final GeoPoint? prevPoint;
   final GeoPoint? nextPoint;
+
+  /// Live delay when the backend has a live status for this train.
+  final int? delayMin;
 }
 
 GeoPoint? _point(Object? j) {
@@ -62,6 +66,7 @@ List<BackendTrainEstimate> parseNearbyTrains(Map<String, dynamic> json) {
     final loc = _point(p['location']);
     if (loc == null) continue;
     final prev = p['prev_stop'], next = p['next_stop'];
+    final liveStatus = it['live_status'];
     out.add(BackendTrainEstimate(
       number: '${t['number'] ?? ''}',
       name: '${t['name'] ?? ''}',
@@ -76,6 +81,7 @@ List<BackendTrainEstimate> parseNearbyTrains(Map<String, dynamic> json) {
       nextCode: next is Map ? next['code']?.toString() : null,
       prevPoint: prev is Map ? _point(prev['location']) : null,
       nextPoint: next is Map ? _point(next['location']) : null,
+      delayMin: liveStatus is Map ? (liveStatus['delay_min'] as num?)?.toInt() : null,
     ));
   }
   return out;
@@ -155,5 +161,7 @@ Train snapToRail(BackendTrainEstimate e, List<List<GeoPoint>> rails, DateTime no
     position: line.geoAt(arc),
     fixTime: now,
     status: stopped ? TrainStatus.stopped : TrainStatus.moving,
+    estimated: true,
+    delayMin: e.delayMin,
   );
 }

@@ -10,10 +10,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/dilshadahmad2/nearby-live/backend/internal/delay"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/geo"
+	"github.com/dilshadahmad2/nearby-live/backend/internal/live"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/rail"
 )
 
@@ -31,11 +34,23 @@ type Server struct {
 	AdminToken string
 	Now        func() time.Time
 	Log        *slog.Logger
+
+	// Delays holds live train delays (provider and/or pushed).
+	Delays *delay.Service
+	// Hub holds live positions of every tracked object.
+	Hub *live.Hub
+	// Sky refreshes flights around requests (nil = no flight feed).
+	Sky *live.OpenSky
 }
 
 // New creates a server around an initial index.
 func New(ix *rail.Index) *Server {
-	s := &Server{Now: time.Now, Log: slog.Default()}
+	s := &Server{
+		Now:    time.Now,
+		Log:    slog.Default(),
+		Delays: delay.NewService(nil, nil, delay.Config{}),
+		Hub:    live.NewHub(),
+	}
 	s.index.Store(ix)
 	return s
 }
@@ -59,7 +74,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/trains/{number}", s.train)
 	mux.HandleFunc("GET /v1/trains/{number}/route", s.route)
 	mux.HandleFunc("GET /v1/trains/{number}/position", s.position)
+	mux.HandleFunc("GET /v1/trains/{number}/live", s.trainLive)
 	mux.HandleFunc("POST /v1/position/estimate", s.estimate)
+
+	mux.HandleFunc("GET /v1/live", s.liveNearby)
+	mux.HandleFunc("GET /v1/live/bbox", s.liveBBox)
+	mux.HandleFunc("GET /v1/live/status", s.liveStatus)
+	mux.HandleFunc("GET /v1/live/{kind}/{id}", s.liveObject)
+	mux.HandleFunc("PUT /v1/admin/trains/{number}/delay", s.admin(s.putDelay))
 
 	mux.HandleFunc("PUT /v1/admin/stations/{code}", s.admin(s.putStation))
 	mux.HandleFunc("POST /v1/admin/reload", s.admin(s.reload))
@@ -205,27 +227,73 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"train": t, "stops": out})
 }
 
-// position estimates where a train is from its timetable.
+// position estimates where a train is from its timetable, shifted by the
+// live delay when one is known.
 //
-//	GET /v1/trains/{number}/position?at=RFC3339&delay_min=15
+//	GET /v1/trains/{number}/position?at=RFC3339&delay_min=15&live=1
+//
+// delay_min overrides the live delay; live=1 asks the delay provider for a
+// fresh status first (counts against its budget).
 func (s *Server) position(w http.ResponseWriter, r *http.Request) {
-	ix := s.Index()
-	num := r.PathValue("number")
-	t := ix.Train(num)
 	at, ok := timeParam(w, r, s.Now())
 	if !ok {
 		return
 	}
-	delay := time.Duration(intParam(r, "delay_min", 0, -600, 6000)) * time.Minute
-	pos, found := ix.TrainPosition(num, at, delay)
-	if !found {
+	s.writePosition(w, r, r.PathValue("number"), at, r.URL.Query().Get("live") == "1")
+}
+
+// trainLive is position with live=1.
+func (s *Server) trainLive(w http.ResponseWriter, r *http.Request) {
+	s.writePosition(w, r, r.PathValue("number"), s.Now(), true)
+}
+
+func (s *Server) writePosition(w http.ResponseWriter, r *http.Request, num string, at time.Time, fetch bool) {
+	ix := s.Index()
+	t := ix.Train(num)
+	if len(ix.Stops(num)) == 0 {
 		writeErr(w, http.StatusNotFound, "no timetable for this train")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"train": t, "position": pos})
+	resp := map[string]any{"train": t}
+	var d time.Duration
+	if v := r.URL.Query().Get("delay_min"); v != "" {
+		d = time.Duration(intParam(r, "delay_min", 0, -600, 6000)) * time.Minute
+	} else {
+		st, have := s.Delays.Latest(num)
+		if fetch {
+			// Which journey? Estimate with what we know, then ask for that one.
+			pos, _ := ix.TrainPosition(num, at, s.Delays.DelayFor(num))
+			ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+			fresh, err := s.Delays.Get(ctx, num, pos.JourneyStart)
+			cancel()
+			if err == nil {
+				st, have = fresh, true
+			} else {
+				resp["live_error"] = err.Error()
+			}
+		}
+		if have {
+			d = time.Duration(st.DelayMin) * time.Minute
+			resp["live_status"] = st
+		}
+	}
+	pos, _ := ix.TrainPosition(num, at, d)
+	if st, ok := resp["live_status"].(delay.Status); ok && st.Point != nil && at.Sub(st.ReportedAt) < live.LiveFixMaxAge {
+		// The provider reported coordinates: they beat the timetable.
+		p := *st.Point
+		pos.Point = &p
+		pos.Estimated = false
+		resp["position_source"] = st.Source
+	} else {
+		resp["position_source"] = "timetable"
+	}
+	resp["position"] = pos
+	writeJSON(w, http.StatusOK, resp)
 }
 
-// nearbyTrains estimates which trains are within radius of a point now.
+// nearbyTrains estimates which trains are within radius of a point now,
+// applying known live delays. live=1 refreshes the delay of the nearest
+// few trains from the provider first.
 //
 //	GET /v1/trains/nearby?lat=28.65&lon=77.24&radius_km=5
 func (s *Server) nearbyTrains(w http.ResponseWriter, r *http.Request) {
@@ -238,7 +306,41 @@ func (s *Server) nearbyTrains(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	radius := floatParam(r, "radius_km", 5, 0.1, 100)
-	writeJSON(w, http.StatusOK, list(s.Index().NearbyTrains(p, radius, at, intParam(r, "limit", 20, 1, 200))))
+	limit := intParam(r, "limit", 20, 1, 200)
+	ix := s.Index()
+	got := ix.NearbyTrains(p, radius, at, limit, s.Delays.DelayFor)
+	if r.URL.Query().Get("live") == "1" && s.Delays.HasProvider() {
+		ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+		var wg sync.WaitGroup
+		for i, t := range got {
+			if i >= 5 {
+				break
+			}
+			wg.Add(1)
+			go func(num string, start time.Time) {
+				defer wg.Done()
+				_, _ = s.Delays.Get(ctx, num, start)
+			}(t.Train.Number, t.Position.JourneyStart)
+		}
+		wg.Wait()
+		cancel()
+		got = ix.NearbyTrains(p, radius, at, limit, s.Delays.DelayFor)
+	}
+	// Attach the live status where one is known, so clients can tell
+	// "on time (reported)" from "no live data".
+	type item struct {
+		rail.NearbyTrain
+		LiveStatus *delay.Status `json:"live_status,omitempty"`
+	}
+	out := make([]item, 0, len(got))
+	for _, t := range got {
+		it := item{NearbyTrain: t}
+		if st, ok := s.Delays.Latest(t.Train.Number); ok {
+			it.LiveStatus = &st
+		}
+		out = append(out, it)
+	}
+	writeJSON(w, http.StatusOK, list(out))
 }
 
 // EstimateRequest is the body of POST /v1/position/estimate: live provider
@@ -357,6 +459,167 @@ func (s *Server) reload(w http.ResponseWriter, r *http.Request) {
 	}
 	s.index.Store(ix)
 	s.health(w, r)
+}
+
+// -------------------------------------------------------------------- live
+
+func kindsParam(r *http.Request) []live.Kind {
+	var out []live.Kind
+	for _, k := range strings.Split(r.URL.Query().Get("types"), ",") {
+		if k = strings.TrimSpace(strings.ToLower(k)); k != "" {
+			out = append(out, live.Kind(strings.TrimSuffix(k, "s")))
+		}
+	}
+	return out
+}
+
+func wants(kinds []live.Kind, k live.Kind) bool {
+	if len(kinds) == 0 {
+		return true
+	}
+	for _, x := range kinds {
+		if x == k {
+			return true
+		}
+	}
+	return false
+}
+
+// liveNearby returns every tracked object within radius of a point.
+//
+//	GET /v1/live?lat=28.65&lon=77.24&radius_km=10&types=train,flight&limit=100
+func (s *Server) liveNearby(w http.ResponseWriter, r *http.Request) {
+	p, ok := pointParam(w, r)
+	if !ok {
+		return
+	}
+	radius := floatParam(r, "radius_km", 10, 0.1, 500)
+	kinds := kindsParam(r)
+	if s.Sky != nil && wants(kinds, live.KindFlight) {
+		s.Sky.EnsureFresh(r.Context(), p, radius, 3*time.Second)
+	}
+	res := s.Hub.Find(live.Query{Center: &p, RadiusKm: radius, Kinds: kinds, Limit: intParam(r, "limit", 100, 1, 2000)})
+	writeJSON(w, http.StatusOK, map[string]any{"count": len(res), "items": nonNil(res), "layers": s.Hub.Status()})
+}
+
+// liveBBox returns tracked objects in a map viewport.
+func (s *Server) liveBBox(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	var b geo.BBox
+	var err error
+	for _, f := range []struct {
+		k string
+		v *float64
+	}{{"south", &b.South}, {"west", &b.West}, {"north", &b.North}, {"east", &b.East}} {
+		if *f.v, err = strconv.ParseFloat(q.Get(f.k), 64); err != nil {
+			writeErr(w, http.StatusBadRequest, "south, west, north and east are required numbers")
+			return
+		}
+	}
+	if b.South > b.North || b.West > b.East {
+		writeErr(w, http.StatusBadRequest, "invalid bounding box")
+		return
+	}
+	kinds := kindsParam(r)
+	if s.Sky != nil && wants(kinds, live.KindFlight) {
+		c := geo.Point{Lat: (b.South + b.North) / 2, Lon: (b.West + b.East) / 2}
+		s.Sky.EnsureFresh(r.Context(), c, geo.HaversineKm(c, geo.Point{Lat: b.North, Lon: b.East}), 3*time.Second)
+	}
+	res := s.Hub.Find(live.Query{BBox: &b, Kinds: kinds, Limit: intParam(r, "limit", 500, 1, 5000)})
+	writeJSON(w, http.StatusOK, map[string]any{"count": len(res), "items": nonNil(res), "layers": s.Hub.Status()})
+}
+
+// liveObject returns one object, e.g. /v1/live/train/12951 or /v1/live/flight/800c1b.
+func (s *Server) liveObject(w http.ResponseWriter, r *http.Request) {
+	k := live.Kind(strings.TrimSuffix(strings.ToLower(r.PathValue("kind")), "s"))
+	id := r.PathValue("id")
+	if k == live.KindTrain {
+		// Always fresh for a single train (cheap).
+		if o, ok := live.TrainObject(s.Index(), s.Delays, id, s.Now()); ok {
+			writeJSON(w, http.StatusOK, o)
+			return
+		}
+	} else if o, ok := s.Hub.Get(k, strings.ToLower(id)); ok {
+		writeJSON(w, http.StatusOK, o)
+		return
+	}
+	writeErr(w, http.StatusNotFound, "not currently tracked")
+}
+
+// liveStatus reports every feed.
+func (s *Server) liveStatus(w http.ResponseWriter, _ *http.Request) {
+	out := map[string]any{"layers": s.Hub.Status(), "delays": s.Delays.Stats()}
+	if s.Sky != nil {
+		out["opensky"] = s.Sky.Usage()
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// DelayReport is the body of PUT /v1/admin/trains/{number}/delay.
+type DelayReport struct {
+	DelayMin        int        `json:"delay_min"`
+	JourneyDate     string     `json:"journey_date"` // YYYY-MM-DD; default: current journey
+	LastStationCode string     `json:"last_station_code"`
+	Location        *geo.Point `json:"location"`
+	Source          string     `json:"source"`
+	ReportedAt      *time.Time `json:"reported_at"`
+}
+
+// putDelay ingests a live status from any feed (cron job, partner, scraper
+// you are allowed to run).
+func (s *Server) putDelay(w http.ResponseWriter, r *http.Request) {
+	num := r.PathValue("number")
+	ix := s.Index()
+	if len(ix.Stops(num)) == 0 {
+		writeErr(w, http.StatusNotFound, "unknown train")
+		return
+	}
+	var rep DelayReport
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&rep); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if rep.DelayMin < -600 || rep.DelayMin > 6000 {
+		writeErr(w, http.StatusBadRequest, "delay_min out of range")
+		return
+	}
+	if rep.JourneyDate != "" {
+		if _, err := time.Parse("2006-01-02", rep.JourneyDate); err != nil {
+			writeErr(w, http.StatusBadRequest, "journey_date must be YYYY-MM-DD")
+			return
+		}
+	} else {
+		pos, _ := ix.TrainPosition(num, s.Now(), time.Duration(rep.DelayMin)*time.Minute)
+		rep.JourneyDate = delay.DateKey(pos.JourneyStart)
+	}
+	st := delay.Status{
+		TrainNumber:     num,
+		JourneyDate:     rep.JourneyDate,
+		DelayMin:        rep.DelayMin,
+		LastStationCode: strings.ToUpper(rep.LastStationCode),
+		Point:           rep.Location,
+		Source:          rep.Source,
+		ReportedAt:      s.Now(),
+	}
+	if st.Source == "" {
+		st.Source = "push"
+	}
+	if rep.ReportedAt != nil {
+		st.ReportedAt = *rep.ReportedAt
+	}
+	if err := s.Delays.Put(r.Context(), st); err != nil {
+		s.Log.Error("save delay", "err", err)
+		writeErr(w, http.StatusInternalServerError, "could not save")
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+func nonNil[T any](v []T) []T {
+	if v == nil {
+		return []T{}
+	}
+	return v
 }
 
 // --------------------------------------------------------------- plumbing
