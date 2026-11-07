@@ -1,12 +1,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 
 	"github.com/dilshadahmad2/nearby-live/backend/internal/geo"
 	"github.com/dilshadahmad2/nearby-live/backend/internal/live"
@@ -143,5 +147,44 @@ func TestDelayPushShiftsPositionAndLive(t *testing.T) {
 	}
 	if code, _ := get(t, h, "GET", "/v1/live/status", ""); code != 200 {
 		t.Fatalf("status: %d", code)
+	}
+}
+
+func TestMetricsAndWebSocketThroughMiddleware(t *testing.T) {
+	s := testServer()
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// The stream must still upgrade through the middleware's response wrapper.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, _, err := websocket.Dial(ctx, strings.Replace(ts.URL, "http", "ws", 1)+"/v1/live/ws", nil)
+	if err != nil {
+		t.Fatalf("websocket through middleware: %v", err)
+	}
+	if _, msg, err := c.Read(ctx); err != nil || !strings.Contains(string(msg), `"hello"`) {
+		t.Fatalf("hello: %s %v", msg, err)
+	}
+	c.CloseNow()
+
+	if _, err := http.Get(ts.URL + "/v1/stations/AAA"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.Get(ts.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	body := string(b)
+	for _, want := range []string{
+		`nearby_http_requests_total{method="GET",route="GET /v1/stations/{code}",status="2xx"} 1`,
+		`nearby_http_request_duration_seconds_count{route="GET /v1/stations/{code}"} 1`,
+		"nearby_stream_connections",
+		"nearby_uptime_seconds",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metrics missing %q\n%s", want, body)
+		}
 	}
 }

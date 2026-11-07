@@ -298,6 +298,52 @@ Re-seeding keeps coordinates added this way when the source has none.
 | `OPENSKY_DAILY_CREDITS` / `OPENSKY_SWEEP_INTERVAL` / `OPENSKY_BBOX` | auto / auto / India | |
 | `WS_MAX_CONNS` / `WS_MIN_INTERVAL` / `WS_ORIGINS` | `1000` / `1s` / any | WebSocket stream limits |
 
+## Deploy
+
+`deploy/docker-compose.prod.yml` runs four services on any Linux VM:
+- PostgreSQL;
+- the API;
+- **Caddy**, which gets HTTPS certificates automatically, so the app uses `https://` and `wss://`;
+- a nightly `pg_dump` backup that keeps the last 14 dumps.
+
+Point a DNS name at the VM, then:
+
+```bash
+cd backend/deploy
+cp ../.env.example .env        # ADMIN_TOKEN, delay provider, OpenSky credentials …
+POSTGRES_PASSWORD=change-me DOMAIN=api.example.com docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Build the app against it:
+
+```bash
+flutter build apk --dart-define=BACKEND_URL=https://api.example.com
+```
+
+### Monitoring
+
+`GET /metrics` serves Prometheus text format. Caddy hides it from the public; scrape
+`api:8080/metrics` inside the network.
+
+| Metric | Meaning |
+|---|---|
+| `nearby_http_requests_total{method,route,status}` | Request count |
+| `nearby_http_request_duration_seconds` | Latency histogram per route |
+| `nearby_live_objects{kind}` | Objects held per kind |
+| `nearby_live_age_seconds{kind}` | Time since that kind's last refresh |
+| `nearby_live_feed_error{kind}` | 1 when the last refresh failed |
+| `nearby_stream_connections` | Open WebSocket streams |
+| `nearby_delay_provider_requests_today`, `nearby_opensky_credits_used_today`, `nearby_opensky_daily_credits` | Budgets |
+
+Suggested alerts:
+- `nearby_live_age_seconds{kind="train"} > 120`
+- `nearby_live_feed_error == 1` for 15 minutes
+- OpenSky credits above 90 % of the daily budget
+
+CI (`.github/workflows/ci.yml`) runs on every pull request:
+- backend: gofmt, vet, race tests, seeding a real PostgreSQL, Docker build;
+- app: analyze, tests, debug APK uploaded as an artifact.
+
 ## Limits
 
 * The timetable is a 2016 snapshot without running days. Trains are assumed to run daily and on

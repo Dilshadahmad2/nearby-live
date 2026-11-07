@@ -44,15 +44,18 @@ type Server struct {
 	Sky *live.OpenSky
 	// Stream serves GET /v1/live/ws (created from Hub/Sky when nil).
 	Stream *stream.Server
+
+	metrics *metrics
 }
 
 // New creates a server around an initial index.
 func New(ix *rail.Index) *Server {
 	s := &Server{
-		Now:    time.Now,
-		Log:    slog.Default(),
-		Delays: delay.NewService(nil, nil, delay.Config{}),
-		Hub:    live.NewHub(),
+		Now:     time.Now,
+		Log:     slog.Default(),
+		Delays:  delay.NewService(nil, nil, delay.Config{}),
+		Hub:     live.NewHub(),
+		metrics: newMetrics(),
 	}
 	s.index.Store(ix)
 	return s
@@ -65,6 +68,7 @@ func (s *Server) Index() *rail.Index { return s.index.Load() }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /metrics", s.serveMetrics)
 
 	mux.HandleFunc("GET /v1/stations", s.searchStations)
 	mux.HandleFunc("GET /v1/stations/nearby", s.nearbyStations)
@@ -650,8 +654,12 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 				writeErr(w, http.StatusInternalServerError, "internal error")
 			}
 		}()
-		next.ServeHTTP(w, r)
-		s.Log.Debug("request", "method", r.Method, "path", r.URL.Path, "dur", time.Since(start))
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		if s.metrics != nil && r.Pattern != "GET /v1/live/ws" { // streams are long-lived; counted as a gauge
+			s.metrics.observe(r.Method, r.Pattern, rec.status, time.Since(start))
+		}
+		s.Log.Debug("request", "method", r.Method, "path", r.URL.Path, "status", rec.status, "dur", time.Since(start))
 	})
 }
 
