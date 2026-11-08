@@ -1,0 +1,7 @@
+{$DOMAIN} {
+	encode zstd gzip
+	# /metrics is for your monitoring only (scrape api:8080/metrics inside the network).
+	@metrics path /metrics
+	respond @metrics 404
+	reverse_proxy api:8080
+}

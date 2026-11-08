@@ -1,0 +1,341 @@
+{
+ "version": 8,
+ "name": "Nearby Live Satellite",
+ "sources": {
+  "sat": {
+   "type": "raster",
+   "tiles": [
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+   ],
+   "tileSize": 256,
+   "maxzoom": 19,
+   "attribution": "Imagery \u00a9 Esri, Maxar, Earthstar Geographics"
+  },
+  "openmaptiles": {
+   "type": "vector",
+   "url": "https://tiles.openfreemap.org/planet",
+   "attribution": "\u00a9 OpenMapTiles \u00a9 OpenStreetMap contributors"
+  }
+ },
+ "layers": [
+  {
+   "id": "bg",
+   "type": "background",
+   "paint": {
+    "background-color": "#0d2147"
+   }
+  },
+  {
+   "id": "sat",
+   "type": "raster",
+   "source": "sat",
+   "paint": {
+    "raster-saturation": 0.25,
+    "raster-contrast": 0.12,
+    "raster-brightness-max": 0.95
+   }
+  },
+  {
+   "id": "water",
+   "type": "fill",
+   "source": "openmaptiles",
+   "source-layer": "water",
+   "paint": {
+    "fill-color": "#1aa9ff",
+    "fill-opacity": 0.2
+   }
+  },
+  {
+   "id": "road-glow",
+   "type": "line",
+   "source": "openmaptiles",
+   "source-layer": "transportation",
+   "filter": [
+    "all",
+    [
+     "==",
+     [
+      "geometry-type"
+     ],
+     "LineString"
+    ],
+    [
+     "in",
+     [
+      "get",
+      "class"
+     ],
+     [
+      "literal",
+      [
+       "motorway",
+       "trunk",
+       "primary",
+       "secondary",
+       "tertiary",
+       "minor"
+      ]
+     ]
+    ]
+   ],
+   "layout": {
+    "line-cap": "round",
+    "line-join": "round"
+   },
+   "paint": {
+    "line-color": [
+     "match",
+     [
+      "get",
+      "class"
+     ],
+     [
+      "motorway",
+      "trunk"
+     ],
+     "#ffb000",
+     "primary",
+     "#ff4fa0",
+     [
+      "secondary",
+      "tertiary"
+     ],
+     "#7f8cff",
+     "#4d7bd8"
+    ],
+    "line-width": [
+     "interpolate",
+     [
+      "linear"
+     ],
+     [
+      "zoom"
+     ],
+     10,
+     [
+      "match",
+      [
+       "get",
+       "class"
+      ],
+      [
+       "motorway",
+       "trunk"
+      ],
+      4,
+      "primary",
+      3,
+      [
+       "secondary",
+       "tertiary"
+      ],
+      1,
+      0
+     ],
+     15,
+     [
+      "match",
+      [
+       "get",
+       "class"
+      ],
+      [
+       "motorway",
+       "trunk"
+      ],
+      14,
+      "primary",
+      10,
+      [
+       "secondary",
+       "tertiary"
+      ],
+      7,
+      4
+     ]
+    ],
+    "line-blur": 6,
+    "line-opacity": 0.3
+   }
+  },
+  {
+   "id": "road",
+   "type": "line",
+   "source": "openmaptiles",
+   "source-layer": "transportation",
+   "filter": [
+    "all",
+    [
+     "==",
+     [
+      "geometry-type"
+     ],
+     "LineString"
+    ],
+    [
+     "in",
+     [
+      "get",
+      "class"
+     ],
+     [
+      "literal",
+      [
+       "motorway",
+       "trunk",
+       "primary",
+       "secondary",
+       "tertiary",
+       "minor"
+      ]
+     ]
+    ]
+   ],
+   "layout": {
+    "line-cap": "round",
+    "line-join": "round"
+   },
+   "paint": {
+    "line-color": [
+     "match",
+     [
+      "get",
+      "class"
+     ],
+     [
+      "motorway",
+      "trunk"
+     ],
+     "#ffd166",
+     "primary",
+     "#ff8ac2",
+     [
+      "secondary",
+      "tertiary"
+     ],
+     "#aab6ff",
+     "#7aa2f0"
+    ],
+    "line-width": [
+     "interpolate",
+     [
+      "linear"
+     ],
+     [
+      "zoom"
+     ],
+     10,
+     [
+      "match",
+      [
+       "get",
+       "class"
+      ],
+      [
+       "motorway",
+       "trunk"
+      ],
+      1.2,
+      "primary",
+      0.8,
+      [
+       "secondary",
+       "tertiary"
+      ],
+      0.4,
+      0.1
+     ],
+     15,
+     [
+      "match",
+      [
+       "get",
+       "class"
+      ],
+      [
+       "motorway",
+       "trunk"
+      ],
+      2.4,
+      "primary",
+      1.8,
+      [
+       "secondary",
+       "tertiary"
+      ],
+      1.2,
+      0.8
+     ]
+    ],
+    "line-opacity": 0.75
+   }
+  },
+  {
+   "id": "bld",
+   "type": "fill-extrusion",
+   "source": "openmaptiles",
+   "source-layer": "building",
+   "minzoom": 12,
+   "paint": {
+    "fill-extrusion-color": [
+     "interpolate",
+     [
+      "linear"
+     ],
+     [
+      "coalesce",
+      [
+       "get",
+       "render_height"
+      ],
+      8
+     ],
+     0,
+     "#1e5bff",
+     12,
+     "#2fb7ff",
+     24,
+     "#7c6bff",
+     40,
+     "#d35bff",
+     70,
+     "#ff5fa8",
+     110,
+     "#ffc23d"
+    ],
+    "fill-extrusion-height": [
+     "*",
+     1.5,
+     [
+      "coalesce",
+      [
+       "get",
+       "render_height"
+      ],
+      8
+     ]
+    ],
+    "fill-extrusion-base": [
+     "coalesce",
+     [
+      "get",
+      "render_min_height"
+     ],
+     0
+    ],
+    "fill-extrusion-opacity": 0.5,
+    "fill-extrusion-vertical-gradient": true
+   }
+  }
+ ],
+ "light": {
+  "anchor": "map",
+  "color": "#ffffff",
+  "intensity": 0.5,
+  "position": [
+   1.4,
+   210,
+   35
+  ]
+ }
+}
