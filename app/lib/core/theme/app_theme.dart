@@ -40,4 +40,6 @@ ThemeData buildAppTheme() {
 /// Outfit text style shortcut used by the custom chrome.
 TextStyle outfit(double size, {FontWeight weight = FontWeight.w500, Color color = Colors.white, List<Shadow>? shadows, double? height}) =>
     GoogleFonts.outfit(fontSize: size, fontWeight: weight, color: color, shadows: shadows, height: height,
-        fontFeatures: const [FontFeature.tabularFigures()]);
+            fontFeatures: const [FontFeature.tabularFigures()])
+        // Outfit has no Devanagari; Hindi falls back to Noto (the Android system font).
+        .copyWith(fontFamilyFallback: const ['Noto Sans Devanagari']);

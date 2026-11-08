@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/config.dart';
+import '../../../../core/l10n.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../scene/scene.dart';
@@ -61,7 +62,7 @@ class AppTitle extends StatelessWidget {
       ]),
       SizedBox(height: 2 * scale),
       Text(
-        'Everything around you,\nin real time',
+        l10n(context).subtitle,
         style: outfit(17 * scale,
             color: const Color(0xFFE4EDFF),
             height: 1.18,
@@ -95,10 +96,10 @@ class _LivePillState extends State<LivePill> with SingleTickerProviderStateMixin
   Widget build(BuildContext context) {
     final s = widget.scale;
     final (label, colour, pulse) = switch (widget.status) {
-      LiveStatus.locating => ('Locating…', AppColors.amber, false),
-      LiveStatus.stale => ('Updating…', AppColors.amber, true),
-      LiveStatus.live => ('Live Updates', AppColors.green, true),
-      LiveStatus.demo => ('Live · Demo', AppColors.green, true),
+      LiveStatus.locating => (l10n(context).pillLocating, AppColors.amber, false),
+      LiveStatus.stale => (l10n(context).pillUpdating, AppColors.amber, true),
+      LiveStatus.live => (l10n(context).pillLive, AppColors.green, true),
+      LiveStatus.demo => (l10n(context).pillDemo, AppColors.green, true),
     };
     return _ChromePill(
       scale: s,
@@ -194,7 +195,7 @@ class RangeDropdown extends StatelessWidget {
         boxShadow: const [BoxShadow(color: Color(0x5935E0FF), blurRadius: 14)],
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text('Range', style: outfit(12 * s, weight: FontWeight.w600, color: const Color(0xFFBFE9FF))),
+        Text(l10n(context).range, style: outfit(12 * s, weight: FontWeight.w600, color: const Color(0xFFBFE9FF))),
         SizedBox(width: 6 * s),
         DropdownButtonHideUnderline(
           child: DropdownButton<int>(
@@ -223,18 +224,20 @@ class FeatureRow extends StatelessWidget {
   const FeatureRow({super.key, this.scale = 1});
   final double scale;
 
-  static const _items = [
-    (Icons.bolt_rounded, 'Real-time\nUpdates'),
-    (Icons.location_on_outlined, 'Everything\nNearby'),
-    (Icons.public_rounded, 'City to Global\nView'),
-    (Icons.notifications_none_rounded, 'Alerts &\nNotifications'),
+  static const _icons = [
+    Icons.bolt_rounded,
+    Icons.location_on_outlined,
+    Icons.public_rounded,
+    Icons.notifications_none_rounded,
   ];
 
   @override
   Widget build(BuildContext context) {
+    final l = l10n(context);
+    final labels = [l.featureRealtime, l.featureNearby, l.featureGlobal, l.featureAlerts];
     final s = scale;
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      for (var i = 0; i < _items.length; i++)
+      for (var i = 0; i < _icons.length; i++)
         Container(
           width: 65 * s,
           decoration: i == 0 ? null : const BoxDecoration(border: Border(left: BorderSide(color: Color(0x38FFFFFF)))),
@@ -248,7 +251,7 @@ class FeatureRow extends StatelessWidget {
                 border: Border.all(color: const Color(0xBFFFFFFF), width: 1.5),
                 boxShadow: const [BoxShadow(color: Color(0x8C5AC8FF), blurRadius: 12)],
               ),
-              child: Icon(_items[i].$1, size: 15 * s, color: Colors.white),
+              child: Icon(_icons[i], size: 15 * s, color: Colors.white),
             ),
             SizedBox(height: 5 * s),
             // Labels keep their two designed lines and shrink to fit narrow phones.
@@ -257,7 +260,7 @@ class FeatureRow extends StatelessWidget {
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
-                  _items[i].$2,
+                  labels[i],
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   softWrap: false,
@@ -281,16 +284,18 @@ class NeonBottomNav extends StatelessWidget {
   final ValueChanged<int> onTap;
   final double scale;
 
-  static const tabs = [
-    (Icons.location_on_rounded, 'Nearby'),
-    (Icons.train_outlined, 'Trains'),
-    (Icons.directions_car_outlined, 'Traffic'),
-    (Icons.wb_cloudy_outlined, 'Weather'),
-    (Icons.event_outlined, 'Events'),
+  static const icons = [
+    Icons.location_on_rounded,
+    Icons.train_outlined,
+    Icons.directions_car_outlined,
+    Icons.wb_cloudy_outlined,
+    Icons.event_outlined,
   ];
 
   @override
   Widget build(BuildContext context) {
+    final l = l10n(context);
+    final labels = [l.navNearby, l.navTrains, l.navTraffic, l.navWeather, l.navEvents];
     final s = scale.clamp(.75, 1.2);
     return Container(
       height: 70 * s,
@@ -321,16 +326,16 @@ class NeonBottomNav extends StatelessWidget {
           ),
         ),
         Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-          for (var i = 0; i < tabs.length; i++)
+          for (var i = 0; i < icons.length; i++)
             Expanded(
               child: Semantics(
                 selected: i == index,
                 button: true,
-                label: tabs[i].$2,
+                label: labels[i],
                 child: InkWell(
                   borderRadius: BorderRadius.circular(16),
                   onTap: () => onTap(i),
-                  child: _NavItem(icon: tabs[i].$1, label: tabs[i].$2, active: i == index, scale: s),
+                  child: _NavItem(icon: icons[i], label: labels[i], active: i == index, scale: s),
                 ),
               ),
             ),

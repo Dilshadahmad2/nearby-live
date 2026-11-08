@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/l10n.dart';
 import '../../../../core/theme/app_theme.dart';
 
 /// Teardrop map pin with a glyph, popping in with a springy scale.
@@ -104,7 +105,7 @@ class YouLabel extends StatelessWidget {
         border: Border.all(color: const Color(0x805AB4FF)),
         boxShadow: const [BoxShadow(color: Color(0xB33CAAFF), blurRadius: 16)],
       ),
-      child: Text('You', style: outfit(15 * scale, weight: FontWeight.w600)),
+      child: Text(l10n(context).you, style: outfit(15 * scale, weight: FontWeight.w600)),
     );
   }
 }

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../../core/geo/geo_utils.dart';
+import '../../../../core/l10n.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../weather/weather.dart';
@@ -20,6 +21,7 @@ class GlassCard extends StatelessWidget {
     this.scale = 1,
     this.padding,
     this.onTap,
+    this.semanticLabel,
   });
 
   final CardStyle style;
@@ -30,9 +32,25 @@ class GlassCard extends StatelessWidget {
   final EdgeInsets? padding;
   final VoidCallback? onTap;
 
+  /// Read by screen readers instead of the card's individual texts.
+  final String? semanticLabel;
+
   @override
   Widget build(BuildContext context) {
     final radius = BorderRadius.circular(14 * scale);
+    final card = _build(radius);
+    if (!shown) return ExcludeSemantics(child: card);
+    return Semantics(
+      container: true,
+      button: onTap != null,
+      label: semanticLabel,
+      excludeSemantics: semanticLabel != null,
+      onTap: onTap,
+      child: card,
+    );
+  }
+
+  Widget _build(BorderRadius radius) {
     return IgnorePointer(
       ignoring: !shown,
       child: AnimatedOpacity(
@@ -203,12 +221,17 @@ class ObjectCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final i = info;
+    final l = l10n(context);
     return GlassCard(
       style: style,
       shown: shown && i != null,
       t: t,
       scale: scale,
       onTap: onTap,
+      semanticLabel: i == null
+          ? null
+          : l.cardSemantics(i.title, i.subtitle.replaceAll('\n', ' '),
+              i.distanceKm == null ? '' : l.distanceAway(formatKm(i.distanceKm))),
       padding: showIcon ? null : EdgeInsets.fromLTRB(12 * scale, 8 * scale, 10 * scale, 8 * scale),
       child: i == null
           ? const SizedBox.shrink()
@@ -237,7 +260,7 @@ class ObjectCard extends StatelessWidget {
                     ),
                     if (i.moreCount > 0) ...[
                       SizedBox(width: 5 * scale),
-                      _Chip('+${i.moreCount} more', scale),
+                      _Chip(l10n(context).moreCount(i.moreCount), scale),
                     ],
                   ]),
                   SizedBox(height: 2 * scale),
@@ -285,12 +308,17 @@ class WeatherCard extends StatelessWidget {
     final w = weather;
     final s = scale;
     final li = outfit(9.5 * s, color: const Color(0xE6FFFFFF), height: 1.55);
+    final l = l10n(context);
     return GlassCard(
       style: CardStyle.weather,
       shown: shown && w != null,
       t: t,
       scale: s,
       onTap: onTap,
+      semanticLabel: w == null
+          ? null
+          : '${l.cardWeather}: ${w.label}, ${w.temperatureC.round()}°C, '
+              '${l.humidity(w.humidityPct)}, ${l.wind(w.windKmh.round())}, ${l.rain(w.rainPct)}',
       padding: EdgeInsets.symmetric(horizontal: 10 * s, vertical: 8 * s),
       child: w == null
           ? const SizedBox.shrink()
@@ -300,7 +328,7 @@ class WeatherCard extends StatelessWidget {
                 SizedBox(width: 6 * s),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('Weather', style: outfit(14.5 * s, weight: FontWeight.w700, height: 1.1)),
+                    Text(l10n(context).cardWeather, style: outfit(14.5 * s, weight: FontWeight.w700, height: 1.1)),
                     Text(w.label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -326,9 +354,9 @@ class WeatherCard extends StatelessWidget {
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.centerLeft,
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('Humidity ${w.humidityPct}%', style: li),
-                        Text('Wind ${w.windKmh.round()} km/h', style: li),
-                        Text('Rain ${w.rainPct}%', style: li),
+                        Text(l10n(context).humidity(w.humidityPct), style: li),
+                        Text(l10n(context).wind(w.windKmh.round()), style: li),
+                        Text(l10n(context).rain(w.rainPct), style: li),
                       ]),
                     ),
                   ),

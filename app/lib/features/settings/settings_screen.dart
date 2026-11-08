@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/config.dart';
+import '../../core/l10n.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../alerts/alerts.dart';
@@ -14,12 +15,13 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(settingsProvider);
     final c = ref.read(settingsProvider.notifier);
+    final l = l10n(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: Text(l.settingsTitle)),
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
-          const _Header('Map'),
+          _Header(l.settingsMap),
           _StyleTile(
             selected: s.mapStyle == MapStyleKind.satellite,
             onTap: () => c.setMapStyle(MapStyleKind.satellite),
@@ -32,7 +34,7 @@ class SettingsScreen extends ConsumerWidget {
             title: 'Neon city',
             subtitle: 'Navy land, cyan water, neon roads, buildings coloured by height',
           ),
-          const _Header('Range'),
+          _Header(l.settingsRange),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: SegmentedButton<int>(
@@ -41,7 +43,7 @@ class SettingsScreen extends ConsumerWidget {
               onSelectionChanged: (v) => c.setRange(v.first),
             ),
           ),
-          const _Header('Location'),
+          _Header(l.settingsLocation),
           SwitchListTile(
             value: s.demo == DemoPreference.always,
             onChanged: (v) => c.setDemo(v ? DemoPreference.always : DemoPreference.auto),
@@ -49,16 +51,29 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: const Text('Replay the 40-second scenario near Red Fort instead of your real location. '
                 'Used automatically when location permission is denied.'),
           ),
-          const _Header('Alerts'),
+          _Header(l.settingsAlerts),
           const _AlertsSection(),
-          const _Header('Accessibility'),
+          _Header(l.settingsLanguage),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SegmentedButton<String>(
+              segments: [
+                ButtonSegment(value: '', label: Text(l.languageSystem)),
+                const ButtonSegment(value: 'en', label: Text('English')),
+                const ButtonSegment(value: 'hi', label: Text('हिन्दी')),
+              ],
+              selected: {s.languageCode},
+              onSelectionChanged: (v) => c.setLanguage(v.first),
+            ),
+          ),
+          _Header(l.settingsAccessibility),
           SwitchListTile(
             value: s.reduceMotion,
             onChanged: c.setReduceMotion,
             title: const Text('Reduce motion'),
             subtitle: const Text('Stops the camera sway, particles and scan effect'),
           ),
-          const _Header('Data sources'),
+          _Header(l.settingsDataSources),
           const _Source('Map', 'OpenFreeMap vector tiles · Esri World Imagery', true),
           const _Source('Weather', 'Open-Meteo (no key)', true),
           const _Source('Flights', 'OpenSky Network (anonymous)', true),

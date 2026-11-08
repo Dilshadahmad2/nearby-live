@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:nearby_live/core/geo/geo_point.dart';
+import 'package:nearby_live/core/l10n.dart';
 import 'package:nearby_live/core/theme/app_theme.dart';
 import 'package:nearby_live/features/demo/demo_city.dart';
 import 'package:nearby_live/features/nearby/presentation/map/map_sync.dart';
@@ -90,11 +91,12 @@ class _GridPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-const _sizes = <String, Size>{
-  'small-android-360x780': Size(360, 780),
-  'pixel-412x915': Size(412, 915),
-  'iphone-390x844': Size(390, 844),
-  'iphone-pro-max-430x932': Size(430, 932),
+const _sizes = <String, (Size, String)>{
+  'small-android-360x780': (Size(360, 780), 'en'),
+  'pixel-412x915': (Size(412, 915), 'en'),
+  'iphone-390x844': (Size(390, 844), 'en'),
+  'iphone-pro-max-430x932': (Size(430, 932), 'en'),
+  'hindi-small-android-360x780': (Size(360, 780), 'hi'),
 };
 
 void main() {
@@ -111,17 +113,24 @@ void main() {
       final loader = FontLoader('MaterialIcons')..addFont(Future.value(ByteData.sublistView(icons.readAsBytesSync())));
       await loader.load();
     }
+    // Devanagari for the Hindi run (on phones this is the system font).
+    final hindi = FontLoader('Noto Sans Devanagari');
+    for (final w in ['500', '700']) {
+      hindi.addFont(Future.value(ByteData.sublistView(File('test/fonts/NotoSansDevanagari-$w.ttf').readAsBytesSync())));
+    }
+    await hindi.load();
   });
 
   for (final entry in _sizes.entries) {
     testWidgets('Nearby screen lays out on ${entry.key}', (tester) async {
       const dpr = 2.0;
       tester.view.devicePixelRatio = dpr;
-      tester.view.physicalSize = entry.value * dpr;
+      final (size, lang) = entry.value;
+      tester.view.physicalSize = size * dpr;
       tester.view.padding = const FakeViewPadding(top: 32 * dpr, bottom: 16 * dpr);
       addTearDown(tester.view.reset);
 
-      SharedPreferences.setMockInitialValues({'demo_pref': 'always', 'range_km': 10});
+      SharedPreferences.setMockInitialValues({'demo_pref': 'always', 'range_km': 10, 'language': lang});
       final prefs = await SharedPreferences.getInstance();
       final shot = GlobalKey();
 
@@ -133,6 +142,9 @@ void main() {
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: buildAppTheme(),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: Locale(lang),
           home: RepaintBoundary(
             key: shot,
             child: Scaffold(
@@ -182,9 +194,10 @@ void main() {
         });
       }
 
-      expect(find.text('Train'), findsOneWidget);
-      expect(find.text('Weather'), findsWidgets);
-      expect(find.text('Road Traffic'), findsOneWidget);
+      final l = lookupAppLocalizations(Locale(lang));
+      expect(find.text(l.cardTrain), findsOneWidget);
+      expect(find.text(l.cardWeather), findsWidgets);
+      expect(find.text(l.cardTraffic), findsOneWidget);
       expect(find.text('Music Fest 2025'), findsOneWidget);
 
       // Stop the ticker before the test ends.

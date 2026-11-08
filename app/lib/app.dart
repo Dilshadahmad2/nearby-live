@@ -1,23 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/l10n.dart';
 import 'core/theme/app_theme.dart';
 import 'features/alerts/alerts.dart';
 import 'features/lists/category_list_screen.dart';
 import 'features/nearby/presentation/nearby_screen.dart';
 import 'features/nearby/presentation/widgets/chrome.dart';
 import 'features/nearby/scene/scene.dart';
+import 'features/settings/settings_controller.dart';
 
-class NearbyLiveApp extends StatelessWidget {
+class NearbyLiveApp extends ConsumerWidget {
   const NearbyLiveApp({super.key});
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: 'Nearby Live',
-        debugShowCheckedModeBanner: false,
-        theme: buildAppTheme(),
-        home: const HomeShell(),
-      );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final code = ref.watch(settingsProvider.select((s) => s.languageCode));
+    return MaterialApp(
+      title: 'Nearby Live',
+      debugShowCheckedModeBanner: false,
+      theme: buildAppTheme(),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: code.isEmpty ? null : Locale(code),
+      home: const HomeShell(),
+    );
+  }
 }
 
 /// Map screen plus the floating neon bottom nav. The Nearby tab stays alive

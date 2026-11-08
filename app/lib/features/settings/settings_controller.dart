@@ -20,6 +20,7 @@ class SettingsState {
     this.mapStyle = MapStyleKind.satellite,
     this.demo = DemoPreference.auto,
     this.reduceMotion = false,
+    this.languageCode = '',
   });
 
   final int rangeKm;
@@ -27,12 +28,17 @@ class SettingsState {
   final DemoPreference demo;
   final bool reduceMotion;
 
-  SettingsState copyWith({int? rangeKm, MapStyleKind? mapStyle, DemoPreference? demo, bool? reduceMotion}) =>
+  /// '' = follow the device; otherwise 'en' or 'hi'.
+  final String languageCode;
+
+  SettingsState copyWith(
+          {int? rangeKm, MapStyleKind? mapStyle, DemoPreference? demo, bool? reduceMotion, String? languageCode}) =>
       SettingsState(
         rangeKm: rangeKm ?? this.rangeKm,
         mapStyle: mapStyle ?? this.mapStyle,
         demo: demo ?? this.demo,
         reduceMotion: reduceMotion ?? this.reduceMotion,
+        languageCode: languageCode ?? this.languageCode,
       );
 }
 
@@ -48,6 +54,7 @@ class SettingsController extends Notifier<SettingsState> {
   static const _kStyle = 'map_style';
   static const _kDemo = 'demo_pref';
   static const _kMotion = 'reduce_motion';
+  static const _kLanguage = 'language';
 
   SharedPreferences get _prefs => ref.read(sharedPreferencesProvider);
 
@@ -60,6 +67,7 @@ class SettingsController extends Notifier<SettingsState> {
       mapStyle: MapStyleKind.values.asNameMap()[p.getString(_kStyle)] ?? MapStyleKind.satellite,
       demo: DemoPreference.values.asNameMap()[p.getString(_kDemo)] ?? DemoPreference.auto,
       reduceMotion: p.getBool(_kMotion) ?? false,
+      languageCode: p.getString(_kLanguage) ?? '',
     );
   }
 
@@ -77,6 +85,11 @@ class SettingsController extends Notifier<SettingsState> {
   void setDemo(DemoPreference demo) {
     state = state.copyWith(demo: demo);
     _prefs.setString(_kDemo, demo.name);
+  }
+
+  void setLanguage(String code) {
+    state = state.copyWith(languageCode: code);
+    _prefs.setString(_kLanguage, code);
   }
 
   void setReduceMotion(bool v) {

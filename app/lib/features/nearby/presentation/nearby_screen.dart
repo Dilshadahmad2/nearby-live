@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 import '../../../core/geo/geo_utils.dart';
+import '../../../core/l10n.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../demo/demo_city.dart';
@@ -322,11 +323,18 @@ class _NearbyScreenState extends ConsumerState<NearbyScreen> with SingleTickerPr
         if (!_styleReady && widget.preview == null)
           Center(
               child:
-                  Text('Loading 3D city…', style: outfit(15, weight: FontWeight.w600, color: const Color(0xFFBFE9FF)))),
+                  Text(l10n(context).loadingCity, style: outfit(15, weight: FontWeight.w600, color: const Color(0xFFBFE9FF)))),
         if (st.mode == NearbyMode.locating && (_styleReady || widget.preview != null))
           Center(
-              child: Text('Finding your location…',
+              child: Text(l10n(context).findingLocation,
                   style: outfit(15, weight: FontWeight.w600, color: const Color(0xFFBFE9FF)))),
+        if (_isOffline(st))
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: widget.bottomInset + 26,
+            child: const Center(child: _OfflineBanner()),
+          ),
         if (st.mode == NearbyMode.demo && st.access != null && st.access != LocationAccess.granted)
           Positioned(
             left: 16,
@@ -559,7 +567,7 @@ class _CardsLayer extends StatelessWidget {
         top: y(194),
         width: 184 * s,
         child: ObjectCard(
-          info: cards[NearbyKind.train],
+          info: _titled(cards[NearbyKind.train], l10n(context).cardTrain),
           style: CardStyle.train,
           icon: Icons.train_rounded,
           shown: cards.containsKey(NearbyKind.train),
@@ -573,7 +581,7 @@ class _CardsLayer extends StatelessWidget {
         top: y(140),
         width: 142 * s,
         child: ObjectCard(
-          info: cards[NearbyKind.flight],
+          info: _titled(cards[NearbyKind.flight], l10n(context).cardFlight),
           style: CardStyle.flight,
           icon: Icons.flight_rounded,
           showIcon: false,
@@ -599,7 +607,7 @@ class _CardsLayer extends StatelessWidget {
         top: y(386),
         width: 172 * s,
         child: ObjectCard(
-          info: cards[NearbyKind.traffic],
+          info: _titled(cards[NearbyKind.traffic], l10n(context).cardTraffic),
           style: CardStyle.traffic,
           icon: Icons.directions_car_rounded,
           shown: cards.containsKey(NearbyKind.traffic),
@@ -613,7 +621,7 @@ class _CardsLayer extends StatelessWidget {
         top: y(438),
         width: 176 * s,
         child: ObjectCard(
-          info: cards[NearbyKind.event],
+          info: _titled(cards[NearbyKind.event], l10n(context).cardEvents),
           style: CardStyle.event,
           icon: Icons.calendar_month_rounded,
           shown: cards.containsKey(NearbyKind.event),
@@ -632,9 +640,8 @@ class _DemoBanner extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final text = access == LocationAccess.serviceDisabled
-        ? 'Location is off — showing the Old Delhi demo'
-        : 'No location permission — showing the Old Delhi demo';
+    final l = l10n(context);
+    final text = access == LocationAccess.serviceDisabled ? l.demoLocationOff : l.demoNoPermission;
     return Material(
       color: const Color(0xE6081437),
       shape: StadiumBorder(side: BorderSide(color: AppColors.amber.withValues(alpha: .6))),
@@ -651,10 +658,50 @@ class _DemoBanner extends ConsumerWidget {
             const SizedBox(width: 6),
             Flexible(child: Text(text, style: outfit(11.5, weight: FontWeight.w600))),
             const SizedBox(width: 6),
-            Text('Enable', style: outfit(11.5, weight: FontWeight.w700, color: AppColors.cyan)),
+            Text(l.enable, style: outfit(11.5, weight: FontWeight.w700, color: AppColors.cyan)),
           ]),
         ),
       ),
     );
   }
+}
+
+/// The card with a localised title (directors produce English titles).
+CardInfo? _titled(CardInfo? c, String title) => c == null
+    ? null
+    : CardInfo(
+        title: title,
+        subtitle: c.subtitle,
+        status: c.status,
+        distanceKm: c.distanceKm,
+        extra: c.extra,
+        moreCount: c.moreCount,
+      );
+
+/// Live mode, sources configured, and every one of them failing and stale.
+bool _isOffline(NearbyState st) {
+  if (st.mode != NearbyMode.live || st.health.isEmpty) return false;
+  final now = DateTime.now();
+  return st.health.values.every((h) => h.lastError != null && h.isStale(now));
+}
+
+class _OfflineBanner extends StatelessWidget {
+  const _OfflineBanner();
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        liveRegion: true,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: ShapeDecoration(
+            color: const Color(0xE6081437),
+            shape: StadiumBorder(side: BorderSide(color: AppColors.red.withValues(alpha: .6))),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.cloud_off_rounded, size: 15, color: AppColors.red),
+            const SizedBox(width: 6),
+            Flexible(child: Text(l10n(context).offline, style: outfit(11.5, weight: FontWeight.w600))),
+          ]),
+        ),
+      );
 }

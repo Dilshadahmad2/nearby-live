@@ -54,7 +54,8 @@ trains are simulated on real rail lines, and demo mode replays the prototype.
 - Header: icon, "Nearby **Live**", subtitle, Live Updates pill, settings button, range dropdown
   (saved).
 - Feature row, five glass cards, bottom nav with a glowing underline, map attribution.
-- **Done when:** the screen matches the prototype on a phone. *Not yet run on a device.*
+- **Done when:** the screen matches the prototype on a phone. *Layout checked at four phone
+  sizes in the layout test (see chunk 17); not yet run on a device.*
 
 ### Chunk 3: Camera, range and projection 🟡
 - Pitch 60°, user in the lower-middle, zoom fitted to the range, slow ±7° bearing sway.
@@ -167,73 +168,98 @@ trains are simulated on real rail lines, and demo mode replays the prototype.
 
 ---
 
-## Phase 4 — Make it real (next)
+## Phase 4 — Make it real
 
-### Chunk 17: Run on real devices ⬜
-- Install the Android SDK, then `flutter build apk --debug` and run on a phone and an emulator.
-- Build on a Mac for iOS (`pod install`, Xcode).
-- Check, then fix what is off:
-  - screen positions on Android (physical pixels) and iOS (points);
-  - overlay alignment and card layout on small and tall screens;
-  - frame rate with 3D models, and battery use.
+### Chunk 17: Run on real devices 🟡
+- ✅ Android SDK installed; `flutter build apk --debug` succeeds (CI builds it on every PR too).
+- ✅ A layout test renders the real Nearby screen (demo scenario, all five cards) at 360×780,
+  390×844, 412×915 and 430×932, plus Hindi at 360×780. It fails on any overflow; screenshots are
+  in `docs/screenshots`. It found and fixed three layout bugs:
+  - the weather card overflowed;
+  - the feature-row labels wrapped badly;
+  - the cards overlapped the feature row.
+- ⬜ **Needs you:** run on a real phone. The native map, the screen projection (Android
+  physical pixels vs iOS points), frame rate and battery cannot be checked without one; this
+  machine has no emulator acceleration.
+- ⬜ **Needs a Mac:** iOS build (`pod install`, Xcode signing).
 - **Done when:** the app runs smoothly on one Android and one iOS device.
 
-### Chunk 18: Real live train source ⬜
-- Choose a provider whose terms allow your use (for example RapidAPI IRCTC APIs or RailRadar).
-- Set `DELAY_PROVIDER_URL`, the headers and the field paths, and check them against real
-  responses.
-- Decide how often to refresh within the plan's request limit.
-- Optionally add running days, so trains that don't run today are hidden.
+### Chunk 18: Real live train source ⬜ (needs your decision and key)
+- The code is ready: a configurable delay provider (URL, headers, JSON paths), a push endpoint,
+  caching, a request budget, persistence and the WebSocket stream.
+- ⬜ Choose a provider whose terms allow your use (for example RapidAPI IRCTC APIs or
+  RailRadar), set `DELAY_PROVIDER_URL` and the paths, and check them against real responses.
+- ⬜ Optional: running days, so trains that don't run today are hidden.
 - **Done when:** a real delayed train is shown at the right place with the right delay.
 
-### Chunk 19: Flight feed in production ⬜
-- Create an OpenSky account and set the OAuth2 client credentials (about 10× the free daily
-  allowance).
-- Check OpenSky's terms; commercial use needs their permission.
-- Optionally add a paid feed (ADS-B Exchange, FlightAware) as another source.
+### Chunk 19: Flight feed in production ⬜ (needs an account)
+- The code is ready: OAuth2 client credentials, credit budget, 429 back-off, an India-wide
+  sweep plus on-demand regions.
+- ⬜ Create an OpenSky account and set `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET`. Check
+  OpenSky's terms; commercial use needs their permission.
 - **Done when:** flights over a city stay fresh (under 30 s) all day within budget.
 
-### Chunk 20: Move traffic and weather to the backend ⬜
-- Weather source in the hub, cached per area.
-- TomTom proxy that keeps the key on the server; jams become a `traffic` kind in the hub and the
-  stream.
-- The app gets all live data from one WebSocket.
-- **Done when:** the app needs no API keys and makes one connection.
+### Chunk 20: Traffic and weather in the backend ✅ (real upstreams not reachable from the build machine)
+- Weather from Open-Meteo per ~11 km cell; traffic from TomTom with the key on the server; both
+  are on-demand area sources in the hub.
+- The app gets trains, flights, weather, traffic, events and buses/metro over one WebSocket and
+  needs no API keys. Local polling only runs as a fallback.
 
-### Chunk 21: Deploy and operate ⬜
-- Host the backend and PostgreSQL (any VM or container platform), with HTTPS so the app uses
-  `wss://`.
-- Logs, metrics (requests, open streams, feed freshness, provider budget) and uptime alerts.
-- Backups of `train_live_status` and edited stations.
-- CI: `go test`, `flutter analyze`, `flutter test`, and app builds on every pull request.
+### Chunk 21: Deploy and operate 🟡
+- ✅ CI (GitHub Actions):
+  - backend: gofmt, vet, race tests, seeding a real PostgreSQL, Redis integration test, Docker
+    build;
+  - app: analyze, tests, debug APK artifact.
+- ✅ `/metrics` (Prometheus): requests, latency, live objects, feed age and errors, streams,
+  provider budgets.
+- ✅ `deploy/docker-compose.prod.yml`: PostgreSQL + API + Caddy (automatic HTTPS for `wss://`)
+  + nightly backups.
+- ⬜ **Needs you:** a server and a domain; then point the app's `BACKEND_URL` at it.
 - **Done when:** a release build talks to the hosted backend.
 
-### Chunk 22: Alerts and notifications ⬜
-- Notify when a chosen train is near, a flight is overhead, or a train is very late.
-- Push via Firebase Cloud Messaging and APNs, triggered by the backend from hub events.
-- Settings to choose alerts and quiet hours.
-- **Done when:** a test alert arrives when a train enters the range.
+### Chunk 22: Alerts and notifications 🟡
+- ✅ Backend:
+  - subscriptions (`/v1/alerts/subscriptions/{token}`);
+  - rules: train near, watched train late, flight overhead; quiet hours; cooldown;
+  - delivery through FCM HTTP v1 or a webhook. Tested on real data.
+- ✅ App: local notifications with the same rules; **Settings → Alerts**.
+- ⬜ **Needs a Firebase project:** add `firebase_messaging` and the config files, then register
+  the FCM token, so alerts also arrive while the app is closed.
 
-### Chunk 23: Scale out ⬜
-- Move the hub to Redis (location commands) or PostGIS so several server instances share it.
-- Run the feeds (trains, OpenSky, providers) as one worker.
-- Send stream updates through a pub/sub layer.
-- **Done when:** two API instances serve the same live data.
+### Chunk 23: Scale out ✅
+- `ROLE=worker` (all feeds, alerts and upstream budgets) plus any number of `ROLE=api` instances,
+  sharing the hub through Redis pub/sub and snapshots. Delay pushes reach every instance.
+- Tested end to end on real PostgreSQL + Redis. `deploy/docker-compose.cluster.yml` runs two
+  API instances behind Caddy.
 
-### Chunk 24: Events and more categories ⬜
-- Events from Ticketmaster or PredictHQ: stage model, crowd and spotlights at the venue.
-- Metro and buses from city transit feeds (GTFS-Realtime) where available; ships from AIS data.
-- Each new kind is a source in the hub plus a model or overlay and a card in the app.
-- **Done when:** events appear live in range with their card.
+### Chunk 24: Events and public transport 🟡 (needs keys / feed URLs)
+- ✅ Events from Ticketmaster (`TICKETMASTER_KEY`): nearest event in range gets the card, pin,
+  rising stage, crowd and spotlights.
+- ✅ Buses and metro from any GTFS-Realtime feed (`GTFS_RT_FEEDS`, e.g. Delhi's Open Transit
+  Data portal): small pins and a list.
+- ⬜ Real responses not yet seen (no keys here). Ships (AIS) not started.
 
-### Chunk 25: Polish and store release ⬜
-- Settings: units, refresh intervals, reduce motion (done), privacy text.
-- Empty, offline and error states; cached map tiles; last known data.
-- Accessibility (screen reader labels, contrast), localisation (English and Hindi).
-- App icons and splash screen, store listings, privacy policy (location use), release signing.
+### Chunk 25: Polish and store release 🟡
+- ✅ App icon (`tool/make_icons.py`) and navy splash on Android and iOS.
+- ✅ Release signing via `android/key.properties`.
+- ✅ English and हिन्दी (system or chosen language); screen-reader labels on cards; offline
+  banner; bundled fonts; reduce motion.
+- ✅ Privacy policy draft (`docs/PRIVACY.md`).
+- ⬜ **Needs you:** store listings, screenshots from a real device, a reviewed privacy policy,
+  developer accounts, then the Play / App Store test tracks.
 - **Done when:** the app is published to Play Store and App Store test tracks.
 
 ---
+
+## What only you can do next
+1. Run the debug APK on a phone (download it from the CI artifact or build it locally) and send
+   back anything that looks off. The native map is the one part never seen.
+2. Pick and pay for a live-train provider, and give the backend its key and field paths
+   (chunk 18).
+3. Create an OpenSky account (chunk 19); optionally TomTom, Ticketmaster and GTFS-RT keys.
+4. Rent a server and a domain, then deploy with `deploy/docker-compose.prod.yml` (chunk 21).
+5. Create a Firebase project for push alerts (chunk 22).
+6. Developer accounts and store listings (chunk 25).
 
 ## Open decisions
 1. **Train provider:** which paid live-train API, and its budget.

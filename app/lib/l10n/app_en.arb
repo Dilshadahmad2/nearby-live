@@ -1,0 +1,94 @@
+{
+  "@@locale": "en",
+  "subtitle": "Everything around you,\nin real time",
+  "featureRealtime": "Real-time\nUpdates",
+  "featureNearby": "Everything\nNearby",
+  "featureGlobal": "City to Global\nView",
+  "featureAlerts": "Alerts &\nNotifications",
+  "pillLocating": "Locating…",
+  "pillUpdating": "Updating…",
+  "pillLive": "Live Updates",
+  "pillDemo": "Live · Demo",
+  "range": "Range",
+  "navNearby": "Nearby",
+  "navTrains": "Trains",
+  "navTraffic": "Traffic",
+  "navWeather": "Weather",
+  "navEvents": "Events",
+  "cardTrain": "Train",
+  "cardFlight": "Flight",
+  "cardTraffic": "Road Traffic",
+  "cardWeather": "Weather",
+  "cardEvents": "Events",
+  "humidity": "Humidity {value}%",
+  "@humidity": {
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "wind": "Wind {value} km/h",
+  "@wind": {
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "rain": "Rain {value}%",
+  "@rain": {
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "moreCount": "+{count} more",
+  "@moreCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "you": "You",
+  "loadingCity": "Loading 3D city…",
+  "findingLocation": "Finding your location…",
+  "offline": "No connection — showing the last known data",
+  "demoNoPermission": "No location permission — showing the Old Delhi demo",
+  "demoLocationOff": "Location is off — showing the Old Delhi demo",
+  "enable": "Enable",
+  "settings": "Settings",
+  "settingsMap": "Map",
+  "settingsRange": "Range",
+  "settingsLocation": "Location",
+  "settingsAlerts": "Alerts",
+  "settingsAccessibility": "Accessibility",
+  "settingsLanguage": "Language",
+  "settingsDataSources": "Data sources",
+  "languageSystem": "System default",
+  "settingsTitle": "Settings",
+  "cardSemantics": "{title}: {subtitle}{distance}",
+  "@cardSemantics": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "subtitle": {
+        "type": "String"
+      },
+      "distance": {
+        "type": "String"
+      }
+    }
+  },
+  "distanceAway": ", {km} away",
+  "@distanceAway": {
+    "placeholders": {
+      "km": {
+        "type": "String"
+      }
+    }
+  }
+}

@@ -150,6 +150,42 @@ The backend can also deliver the same alerts as **push notifications** while the
 1. Add `firebase_messaging`, `google-services.json` and `GoogleService-Info.plist`.
 2. Send the FCM token and the user's alert settings to the backend.
 
+## Languages and accessibility
+
+* **English and हिन्दी.** Follows the device language; you can change it under
+  **Settings → Language**. Strings live in `lib/l10n/app_*.arb` and are generated with Flutter's
+  `gen-l10n`. A test checks that every English key has a Hindi translation.
+  * Translated: the main UI (header, feature row, status pill, range control, card titles,
+    weather details, nav, banners, settings headings).
+  * Not translated: data text such as train names, statuses and weather descriptions.
+* Hindi uses Noto Sans Devanagari as a fallback font, which is the Android system font for Hindi.
+* **Screen readers:** each card is one labelled button ("Train: Rajdhani Express (NDLS → BPL),
+  4.4 km away"). Hidden cards are left out, and the offline banner is announced.
+* **Reduce motion** (Settings) stops the camera sway, particles and scan effect.
+* **Offline:** when every live source is failing, a banner says the app is showing the last known
+  data. The Outfit font is bundled (`assets/google_fonts`, OFL), so text renders without a
+  network.
+
+## Release builds
+
+* **Icons and splash:** `python3 tool/make_icons.py` redraws the launcher icon (Android mipmaps,
+  all iOS AppIcon sizes) and the iOS launch image. The splash background is the app's navy.
+* **Android signing:** copy `android/key.properties.example` to `android/key.properties`
+  (git-ignored) and point it at your upload keystore. Without that file, release builds are
+  signed with the debug key.
+
+  ```bash
+  flutter build appbundle --release --dart-define=BACKEND_URL=https://api.example.com
+  ```
+* **iOS:** set your team and bundle id in Xcode (`ios/Runner.xcworkspace`), then:
+
+  ```bash
+  flutter build ipa --dart-define=BACKEND_URL=https://api.example.com
+  ```
+* **Privacy policy:** a draft for the store listings is in `../docs/PRIVACY.md`. It covers the
+  location permission ("while in use"), the services that receive location-based requests, and
+  push alerts.
+
 ## Map styles
 
 * `assets/styles/satellite.json` (default): Esri imagery, faint neon roads, 50 %-opacity 3D buildings coloured by height.
