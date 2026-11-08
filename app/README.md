@@ -56,10 +56,10 @@ SCREENSHOT_DIR=build/screenshots flutter test test/layout_screenshot_test.dart  
 |---|---|
 | Flutter | 3.27+ (Dart 3.5+); developed against Flutter stable 3.47 |
 | Android | minSdk / compileSdk = Flutter defaults; Java 17 |
-| iOS | iOS **15.0+** (MapLibre iOS needs 12+); Xcode 15+; CocoaPods or Swift Package Manager |
+| iOS | iOS **15.5+** (maplibre_gl 0.28 minimum); Xcode 15+; CocoaPods or Swift Package Manager |
 
 The iOS project is configured (`ios/Runner/Info.plist` location strings, `ios/Podfile` with
-`platform :ios, '15.0'`, deployment target 15.0) but has to be built on a Mac:
+`platform :ios, '15.5'`, deployment target 15.5) but has to be built on a Mac:
 `cd ios && pod install` (if you use CocoaPods), then `flutter run` or open `ios/Runner.xcworkspace`.
 
 ## Keys and data sources

@@ -1,4 +1,3 @@
-import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -32,10 +31,9 @@ class Projection {
 /// a marching dash, crowd dots, and a batched projection of every overlay
 /// anchor. Calls never overlap; a frame is skipped while one is in flight.
 class MapSceneSync {
-  MapSceneSync(this.controller, {required this.devicePixelRatio});
+  MapSceneSync(this.controller);
 
   final MapLibreMapController controller;
-  final double devicePixelRatio;
 
   bool _busy = false;
   int _staticVersion = -1;
@@ -217,11 +215,10 @@ class MapSceneSync {
     };
     final keys = anchors.keys.toList();
     final pts = await controller.toScreenLocationBatch([for (final k in keys) LatLng(anchors[k]!.lat, anchors[k]!.lon)]);
-    // Android reports physical pixels, iOS logical points.
-    final div = Platform.isAndroid ? devicePixelRatio : 1.0;
+    // maplibre_gl ≥ 0.28 returns logical pixels on every platform.
     final out = <String, Offset>{};
     for (var i = 0; i < keys.length && i < pts.length; i++) {
-      out[keys[i]] = Offset(pts[i].x.toDouble() / div, pts[i].y.toDouble() / div);
+      out[keys[i]] = Offset(pts[i].x.toDouble(), pts[i].y.toDouble());
     }
     final you = out['_you'] ?? Offset(viewport.width / 2, viewport.height * .62);
     final ring = out['_ring'];

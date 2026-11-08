@@ -268,7 +268,7 @@ class _NearbyScreenState extends ConsumerState<NearbyScreen> with SingleTickerPr
             onMapCreated: (c) {
               _map = c;
               _styleReady = false;
-              _sync = MapSceneSync(c, devicePixelRatio: MediaQuery.devicePixelRatioOf(context));
+              _sync = MapSceneSync(c);
             },
             onStyleLoaded: () async {
               final c = _map;
