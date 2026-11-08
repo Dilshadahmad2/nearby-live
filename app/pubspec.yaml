@@ -28,3 +28,5 @@ flutter:
   assets:
     - assets/styles/
     - assets/demo/
+    # Outfit (SIL OFL, see assets/google_fonts/OFL.txt) bundled so text renders offline.
+    - assets/google_fonts/

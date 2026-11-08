@@ -52,7 +52,8 @@ class GlassCard extends StatelessWidget {
               child: Container(
                 decoration: BoxDecoration(
                   borderRadius: radius,
-                  gradient: LinearGradient(colors: style.gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
+                  gradient:
+                      LinearGradient(colors: style.gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
                   boxShadow: shown
                       ? [
                           BoxShadow(color: style.edge, spreadRadius: 1),
@@ -230,7 +231,9 @@ class ObjectCard extends StatelessWidget {
                   Row(children: [
                     Flexible(
                       child: Text(i.title,
-                          maxLines: 1, overflow: TextOverflow.ellipsis, style: outfit(14.5 * scale, weight: FontWeight.w700, height: 1.1)),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: outfit(14.5 * scale, weight: FontWeight.w700, height: 1.1)),
                     ),
                     if (i.moreCount > 0) ...[
                       SizedBox(width: 5 * scale),
@@ -258,7 +261,8 @@ class ObjectCard extends StatelessWidget {
 
 /// Weather card: icon, condition, big temperature, "0 km", humidity / wind / rain.
 class WeatherCard extends StatelessWidget {
-  const WeatherCard({super.key, required this.weather, required this.shown, required this.t, this.scale = 1, this.onTap});
+  const WeatherCard(
+      {super.key, required this.weather, required this.shown, required this.t, this.scale = 1, this.onTap});
 
   final Weather? weather;
   final bool shown;
@@ -298,7 +302,9 @@ class WeatherCard extends StatelessWidget {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text('Weather', style: outfit(14.5 * s, weight: FontWeight.w700, height: 1.1)),
                     Text(w.label,
-                        maxLines: 1, overflow: TextOverflow.ellipsis, style: outfit(10.5 * s, color: const Color(0xE0FFFFFF))),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: outfit(10.5 * s, color: const Color(0xE0FFFFFF))),
                   ]),
                 ),
                 if (onTap != null) Icon(Icons.chevron_right_rounded, size: 16 * s, color: const Color(0xCCFFFFFF)),
@@ -311,14 +317,21 @@ class WeatherCard extends StatelessWidget {
                   _KmChip(0, CardStyle.weather.badge, s),
                 ]),
                 SizedBox(width: 8 * s),
-                Container(
-                  padding: EdgeInsets.only(left: 8 * s),
-                  decoration: const BoxDecoration(border: Border(left: BorderSide(color: Color(0x33FFFFFF)))),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('Humidity ${w.humidityPct}%', style: li),
-                    Text('Wind ${w.windKmh.round()} km/h', style: li),
-                    Text('Rain ${w.rainPct}%', style: li),
-                  ]),
+                // Flexible + scale-down so long values never overflow the card.
+                Flexible(
+                  child: Container(
+                    padding: EdgeInsets.only(left: 8 * s),
+                    decoration: const BoxDecoration(border: Border(left: BorderSide(color: Color(0x33FFFFFF)))),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Humidity ${w.humidityPct}%', style: li),
+                        Text('Wind ${w.windKmh.round()} km/h', style: li),
+                        Text('Rain ${w.rainPct}%', style: li),
+                      ]),
+                    ),
+                  ),
                 ),
               ]),
             ]),

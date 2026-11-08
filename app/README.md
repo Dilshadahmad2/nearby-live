@@ -7,6 +7,11 @@ Objects animate in only when their real distance (Haversine) is inside the selec
 The look and motion follow the web prototype in [`../prototype/`](../prototype/) and the build plan
 in [`../PLAN_CHUNKS.md`](../PLAN_CHUNKS.md) (written for Kotlin; implemented here in Flutter).
 
+![Nearby screen, demo scenario, 360×780](../docs/screenshots/nearby-demo-360x780.jpg)
+
+*Demo scenario at a 10 km range, rendered by `test/layout_screenshot_test.dart`. In the app, the
+grid background is the real 3D satellite map.*
+
 ## Quick start
 
 ```bash
@@ -37,11 +42,12 @@ Build a debug APK:
 flutter build apk --debug
 ```
 
-Static checks and unit tests:
+Static checks, unit tests and the layout test (four phone sizes, fails on any overflow):
 
 ```bash
 flutter analyze
 flutter test
+SCREENSHOT_DIR=build/screenshots flutter test test/layout_screenshot_test.dart   # also writes PNGs
 ```
 
 ### Requirements

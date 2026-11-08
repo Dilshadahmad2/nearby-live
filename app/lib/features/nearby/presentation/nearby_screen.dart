@@ -29,12 +29,23 @@ import 'widgets/chrome.dart';
 import 'widgets/info_card.dart';
 
 /// The "Nearby" tab: tilted 3D map, HUD overlays, cards and chrome.
+/// Replaces the native map in widget tests / layout previews: a background
+/// and a projection from geo points to screen offsets.
+class MapPreview {
+  const MapPreview({required this.background, required this.project});
+  final Widget background;
+  final Projection Function(SceneSnapshot snap, Size viewport) project;
+}
+
 class NearbyScreen extends ConsumerStatefulWidget {
-  const NearbyScreen({super.key, required this.bottomInset, required this.onOpenCategory});
+  const NearbyScreen({super.key, required this.bottomInset, required this.onOpenCategory, this.preview});
 
   /// Height covered by the floating bottom nav (attribution sits above it).
   final double bottomInset;
   final ValueChanged<NearbyKind> onOpenCategory;
+
+  /// Test-only: render without the native map.
+  final MapPreview? preview;
 
   @override
   ConsumerState<NearbyScreen> createState() => _NearbyScreenState();
@@ -134,7 +145,13 @@ class _NearbyScreenState extends ConsumerState<NearbyScreen> with SingleTickerPr
     final director = _director;
     final sync = _sync;
     _accum += dt;
-    if (director != null && sync != null && _styleReady && _accum >= _mapStep) {
+    final preview = widget.preview;
+    if (preview != null && director != null && _accum >= _mapStep) {
+      final step = _accum;
+      _accum = 0;
+      _snap = director.tick(step, DateTime.now());
+      _proj = preview.project(_snap!, _size);
+    } else if (director != null && sync != null && _styleReady && _accum >= _mapStep) {
       final step = _accum;
       _accum = 0;
       final snap = director.tick(step, DateTime.now());
@@ -155,7 +172,9 @@ class _NearbyScreenState extends ConsumerState<NearbyScreen> with SingleTickerPr
         _smooth[e.key] = cur == null ? e.value : Offset.lerp(cur, e.value, k)!;
       }
       _smooth.removeWhere((key, _) => !p.points.containsKey(key));
-      _hud.ringRadius = _hud.ringRadius == 0 ? p.ringRadius : _hud.ringRadius + (p.ringRadius - _hud.ringRadius) * math.min(1.0, dt * 4);
+      _hud.ringRadius = _hud.ringRadius == 0
+          ? p.ringRadius
+          : _hud.ringRadius + (p.ringRadius - _hud.ringRadius) * math.min(1.0, dt * 4);
       _hud.you = _smooth['_you'];
     }
     _updateHud(dt);
@@ -205,7 +224,12 @@ class _NearbyScreenState extends ConsumerState<NearbyScreen> with SingleTickerPr
     _hud.beams = [
       Beam(key: 'train', target: at(train, -30), colour: AppColors.beamTrain, on: train?.shown ?? false, phase: 0),
       Beam(key: 'flight', target: plane, colour: AppColors.beamFlight, on: flight?.shown ?? false, phase: .2),
-      Beam(key: 'traffic', target: at(traffic, 0), colour: AppColors.beamTraffic, on: traffic?.shown ?? false, phase: .4),
+      Beam(
+          key: 'traffic',
+          target: at(traffic, 0),
+          colour: AppColors.beamTraffic,
+          on: traffic?.shown ?? false,
+          phase: .4),
       Beam(
         key: 'weather',
         target: _weatherPos.translate(0, -40),
@@ -234,22 +258,25 @@ class _NearbyScreenState extends ConsumerState<NearbyScreen> with SingleTickerPr
 
       return Stack(fit: StackFit.expand, children: [
         const ColoredBox(color: Color(0xFF0D2147)),
-        NearbyMapView(
-          style: settings.mapStyle,
-          initialCenter: initial,
-          onMapCreated: (c) {
-            _map = c;
-            _styleReady = false;
-            _sync = MapSceneSync(c, devicePixelRatio: MediaQuery.devicePixelRatioOf(context));
-          },
-          onStyleLoaded: () async {
-            final c = _map;
-            if (c == null) return;
-            await MapSceneSync.installLayers(c);
-            _sync?.invalidate();
-            if (mounted) setState(() => _styleReady = true);
-          },
-        ),
+        if (widget.preview != null)
+          widget.preview!.background
+        else
+          NearbyMapView(
+            style: settings.mapStyle,
+            initialCenter: initial,
+            onMapCreated: (c) {
+              _map = c;
+              _styleReady = false;
+              _sync = MapSceneSync(c, devicePixelRatio: MediaQuery.devicePixelRatioOf(context));
+            },
+            onStyleLoaded: () async {
+              final c = _map;
+              if (c == null) return;
+              await MapSceneSync.installLayers(c);
+              _sync?.invalidate();
+              if (mounted) setState(() => _styleReady = true);
+            },
+          ),
         Positioned(left: 0, right: 0, top: 0, child: SkyOverlay(height: 330 * _sy + pad.top * .5)),
         const Vignette(),
 
@@ -292,10 +319,14 @@ class _NearbyScreenState extends ConsumerState<NearbyScreen> with SingleTickerPr
         ),
 
         // Status / attribution.
-        if (!_styleReady)
-          Center(child: Text('Loading 3D city…', style: outfit(15, weight: FontWeight.w600, color: const Color(0xFFBFE9FF)))),
-        if (st.mode == NearbyMode.locating && _styleReady)
-          Center(child: Text('Finding your location…', style: outfit(15, weight: FontWeight.w600, color: const Color(0xFFBFE9FF)))),
+        if (!_styleReady && widget.preview == null)
+          Center(
+              child:
+                  Text('Loading 3D city…', style: outfit(15, weight: FontWeight.w600, color: const Color(0xFFBFE9FF)))),
+        if (st.mode == NearbyMode.locating && (_styleReady || widget.preview != null))
+          Center(
+              child: Text('Finding your location…',
+                  style: outfit(15, weight: FontWeight.w600, color: const Color(0xFFBFE9FF)))),
         if (st.mode == NearbyMode.demo && st.access != null && st.access != LocationAccess.granted)
           Positioned(
             left: 16,
@@ -451,7 +482,8 @@ class _OverlayLayer extends StatelessWidget {
             children.add(Positioned(
               left: p.dx - 15 * s,
               top: p.dy - 44 * s,
-              child: MapPin(colour: AppColors.traffic, icon: Icons.directions_car_rounded, shown: item.shown, size: 30 * s),
+              child: MapPin(
+                  colour: AppColors.traffic, icon: Icons.directions_car_rounded, shown: item.shown, size: 30 * s),
             ));
           case NearbyKind.event:
             children.add(Positioned(
@@ -473,7 +505,8 @@ class _OverlayLayer extends StatelessWidget {
             children.add(Positioned(
               left: p.dx - 9 * s,
               top: p.dy - 24 * s,
-              child: MapPin(colour: const Color(0xFF14C8B4), icon: Icons.directions_bus_rounded, shown: item.shown, size: 18 * s),
+              child: MapPin(
+                  colour: const Color(0xFF14C8B4), icon: Icons.directions_bus_rounded, shown: item.shown, size: 18 * s),
             ));
           case NearbyKind.weather:
             break;
@@ -518,7 +551,7 @@ class _CardsLayer extends StatelessWidget {
     final s = scale;
     final open = state.widget.onOpenCategory;
     // Cards keep the design's x positions; y is offset by the status bar.
-    double y(double v) => topPad * .6 + v * s;
+    double y(double v) => topPad + v * s;
 
     return Stack(children: [
       Positioned(
@@ -599,7 +632,9 @@ class _DemoBanner extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final text = access == LocationAccess.serviceDisabled ? 'Location is off — showing the Old Delhi demo' : 'No location permission — showing the Old Delhi demo';
+    final text = access == LocationAccess.serviceDisabled
+        ? 'Location is off — showing the Old Delhi demo'
+        : 'No location permission — showing the Old Delhi demo';
     return Material(
       color: const Color(0xE6081437),
       shape: StadiumBorder(side: BorderSide(color: AppColors.amber.withValues(alpha: .6))),

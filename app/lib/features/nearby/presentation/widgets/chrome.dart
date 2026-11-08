@@ -16,7 +16,8 @@ class AppIconBadge extends StatelessWidget {
         height: size,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(size * .27),
-          gradient: const LinearGradient(begin: Alignment(-.3, -1), end: Alignment(.3, 1), colors: [Color(0xFF55B4FF), Color(0xFF1352E6)]),
+          gradient: const LinearGradient(
+              begin: Alignment(-.3, -1), end: Alignment(.3, 1), colors: [Color(0xFF55B4FF), Color(0xFF1352E6)]),
           boxShadow: const [
             BoxShadow(color: Color(0xCC3CA0FF), blurRadius: 26),
             BoxShadow(color: Color(0x8C0A288C), blurRadius: 22, offset: Offset(0, 8)),
@@ -47,21 +48,23 @@ class AppTitle extends StatelessWidget {
       Shadow(color: Color(0x995AC8FF), blurRadius: 22),
       Shadow(color: Color(0x73001450), blurRadius: 12, offset: Offset(0, 3)),
     ];
-    final base = outfit(39 * scale, weight: FontWeight.w800, shadows: shadows, height: 1.1).copyWith(letterSpacing: -.6);
+    final base =
+        outfit(39 * scale, weight: FontWeight.w800, shadows: shadows, height: 1.1).copyWith(letterSpacing: -.6);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
       Row(mainAxisSize: MainAxisSize.min, children: [
         Text('Nearby ', style: base),
         ShaderMask(
           blendMode: BlendMode.srcIn,
           shaderCallback: (r) => const LinearGradient(colors: [Color(0xFF5FF0FF), Color(0xFF2FB2FF)]).createShader(r),
-          child: Text('Live',
-              style: base.copyWith(shadows: const [Shadow(color: Color(0xD93CDCFF), blurRadius: 10)])),
+          child: Text('Live', style: base.copyWith(shadows: const [Shadow(color: Color(0xD93CDCFF), blurRadius: 10)])),
         ),
       ]),
       SizedBox(height: 2 * scale),
       Text(
         'Everything around you,\nin real time',
-        style: outfit(17 * scale, color: const Color(0xFFE4EDFF), height: 1.18,
+        style: outfit(17 * scale,
+            color: const Color(0xFFE4EDFF),
+            height: 1.18,
             shadows: const [Shadow(color: Color(0x80001450), blurRadius: 8, offset: Offset(0, 2))]),
       ),
     ]);
@@ -79,7 +82,8 @@ class LivePill extends StatefulWidget {
 }
 
 class _LivePillState extends State<LivePill> with SingleTickerProviderStateMixin {
-  late final AnimationController _ping = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800))..repeat();
+  late final AnimationController _ping = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800))
+    ..repeat();
 
   @override
   void dispose() {
@@ -233,9 +237,7 @@ class FeatureRow extends StatelessWidget {
       for (var i = 0; i < _items.length; i++)
         Container(
           width: 65 * s,
-          decoration: i == 0
-              ? null
-              : const BoxDecoration(border: Border(left: BorderSide(color: Color(0x38FFFFFF)))),
+          decoration: i == 0 ? null : const BoxDecoration(border: Border(left: BorderSide(color: Color(0x38FFFFFF)))),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Container(
               width: 30 * s,
@@ -249,10 +251,21 @@ class FeatureRow extends StatelessWidget {
               child: Icon(_items[i].$1, size: 15 * s, color: Colors.white),
             ),
             SizedBox(height: 5 * s),
-            Text(
-              _items[i].$2,
-              textAlign: TextAlign.center,
-              style: outfit(10.5 * s, height: 1.15, shadows: const [Shadow(color: Color(0xB3001450), blurRadius: 6, offset: Offset(0, 1))]),
+            // Labels keep their two designed lines and shrink to fit narrow phones.
+            SizedBox(
+              width: 60 * s,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  _items[i].$2,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  softWrap: false,
+                  style: outfit(10.5 * s,
+                      height: 1.15,
+                      shadows: const [Shadow(color: Color(0xB3001450), blurRadius: 6, offset: Offset(0, 1))]),
+                ),
+              ),
             ),
           ]),
         ),
@@ -351,7 +364,9 @@ class _NavItem extends StatelessWidget {
       ),
       SizedBox(height: 4 * s),
       Text(label,
-          style: outfit(12 * s, weight: active ? FontWeight.w700 : FontWeight.w500, color: active ? Colors.white : const Color(0xFFDCE6FF))),
+          style: outfit(12 * s,
+              weight: active ? FontWeight.w700 : FontWeight.w500,
+              color: active ? Colors.white : const Color(0xFFDCE6FF))),
       SizedBox(height: 4 * s),
       AnimatedContainer(
         duration: const Duration(milliseconds: 250),
