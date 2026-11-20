@@ -1,0 +1,7 @@
+# Copy to android/key.properties (git-ignored) and fill in.
+# Create the keystore once:
+#   keytool -genkey -v -keystore ~/nearby-live-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+storePassword=
+keyPassword=
+keyAlias=upload
+storeFile=/home/you/nearby-live-upload.jks

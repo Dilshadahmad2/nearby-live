@@ -1,0 +1,65 @@
+# Scale-out: one worker (all feeds, alerts, upstream budgets) + several API
+# instances (REST + WebSocket) sharing the live hub through Redis.
+#   POSTGRES_PASSWORD=… DOMAIN=api.example.com docker compose -f docker-compose.cluster.yml up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nearby
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: nearby
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nearby"]
+      interval: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+  worker:
+    build: ..
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+    env_file:
+      - path: .env
+        required: false
+    environment: &common
+      DATABASE_URL: postgres://nearby:${POSTGRES_PASSWORD}@db:5432/nearby?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      ROLE: worker
+
+  api1: &api
+    build: ..
+    restart: unless-stopped
+    depends_on: [worker]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *common
+      ROLE: api
+      SEED_IF_EMPTY: "false"
+    expose: ["8080"]
+
+  api2: *api
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [api1, api2]
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+    volumes:
+      - ./Caddyfile.cluster:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
+volumes:
+  pgdata:
+  caddy_data:

@@ -1,0 +1,11 @@
+{$DOMAIN} {
+	encode zstd gzip
+	@metrics path /metrics
+	respond @metrics 404
+	# Round-robin across API instances; unhealthy ones are skipped.
+	reverse_proxy api1:8080 api2:8080 {
+		lb_policy round_robin
+		health_uri /healthz
+		health_interval 10s
+	}
+}

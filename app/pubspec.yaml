@@ -1,0 +1,36 @@
+name: nearby_live
+description: "Nearby Live — live nearby trains, flights, road traffic and weather on a tilted 3D map."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+  dio: ^5.7.0
+  geolocator: ^13.0.2
+  shared_preferences: ^2.3.3
+  google_fonts: ^6.2.1
+  maplibre_gl: ^0.28.0
+  web_socket_channel: ^3.0.3
+  flutter_local_notifications: ^23.0.0
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  generate: true
+  assets:
+    - assets/styles/
+    - assets/demo/
+    # Outfit (SIL OFL, see assets/google_fonts/OFL.txt) bundled so text renders offline.
+    - assets/google_fonts/

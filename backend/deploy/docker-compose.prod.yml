@@ -1,0 +1,56 @@
+# Production: PostgreSQL + API behind Caddy (automatic HTTPS, so the app can use wss://).
+#   cp ../.env.example .env   # fill in ADMIN_TOKEN, provider keys, OpenSky credentials
+#   POSTGRES_PASSWORD=… DOMAIN=api.example.com docker compose -f docker-compose.prod.yml up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nearby
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: nearby
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nearby"]
+      interval: 5s
+      retries: 30
+
+  api:
+    build: ..
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://nearby:${POSTGRES_PASSWORD}@db:5432/nearby?sslmode=disable
+      SEED_IF_EMPTY: "true"
+    expose: ["8080"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [api]
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
+  # Nightly logical backup of the database; keeps the last 14 dumps.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on: [db]
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./backups:/backups
+      - ./backup.sh:/backup.sh:ro
+    entrypoint: ["sh", "/backup.sh"]
+
+volumes:
+  pgdata:
+  caddy_data:
