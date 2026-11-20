@@ -72,7 +72,7 @@ class HudPainter extends CustomPainter {
     final you = state.you;
     if (you != null) {
       _ring(canvas, you, state.ringRadius);
-      _beams(canvas, Offset(you.dx, you.dy - 95 * scale));
+      _beams(canvas, Offset(you.dx, you.dy - 150 * scale)); // from the avatar's head
       _person(canvas, you);
     }
     if (!state.reduceMotion) _motes(canvas, size);
@@ -211,7 +211,7 @@ class HudPainter extends CustomPainter {
   void _person(Canvas c, Offset at) {
     c.save();
     c.translate(at.dx, at.dy);
-    c.scale(.82 * scale.clamp(.8, 1.3));
+    c.scale(1.3 * scale.clamp(.8, 1.3)); // a big avatar, as in the design
     void rr(double x, double y, double w, double h, double r, Color col) =>
         c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(x, y, w, h), Radius.circular(r)), Paint()..color = col);
     c.drawOval(Rect.fromCenter(center: const Offset(0, 2), width: 30, height: 10), Paint()..color = const Color(0x73001440));

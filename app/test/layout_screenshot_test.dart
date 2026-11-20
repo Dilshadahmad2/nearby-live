@@ -18,7 +18,14 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:nearby_live/core/geo/geo_point.dart';
 import 'package:nearby_live/core/l10n.dart';
 import 'package:nearby_live/core/theme/app_theme.dart';
+import 'package:nearby_live/core/geo/geo_utils.dart';
 import 'package:nearby_live/features/demo/demo_city.dart';
+import 'package:nearby_live/features/flights/flight.dart';
+import 'package:nearby_live/features/live/live_models.dart';
+import 'package:nearby_live/features/nearby/application/nearby_controller.dart';
+import 'package:nearby_live/features/traffic/traffic.dart';
+import 'package:nearby_live/features/trains/train.dart';
+import 'package:nearby_live/features/weather/weather.dart';
 import 'package:nearby_live/features/nearby/presentation/map/map_sync.dart';
 import 'package:nearby_live/features/nearby/presentation/nearby_screen.dart';
 import 'package:nearby_live/features/nearby/presentation/widgets/chrome.dart';
@@ -204,4 +211,145 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
+
+  // Live mode (what users see with real data), with a fixed state around
+  // Old Delhi: a train on the real railway line, a flight, weather, a jam
+  // on Ring Road and an event.
+  testWidgets('Live mode lays out with real-position objects', (tester) async {
+    const dpr = 2.0;
+    tester.view.devicePixelRatio = dpr;
+    tester.view.physicalSize = const Size(412, 915) * dpr;
+    tester.view.padding = const FakeViewPadding(top: 32 * dpr, bottom: 16 * dpr);
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({'range_km': 5});
+    final prefs = await SharedPreferences.getInstance();
+    final shot = GlobalKey();
+    final now = DateTime.now();
+    const user = GeoPoint(28.6540, 77.2410);
+
+    final rail = city.train;
+    final railLine = Polyline.fromGeo(rail, LocalProjector(user));
+    final arc = railLine.nearestArc(user) + 150;
+    final state = NearbyState(
+      mode: NearbyMode.live,
+      user: user,
+      rangeKm: 5,
+      trains: [
+        Train(
+          id: 'ir-12951',
+          name: 'Rajdhani Express',
+          number: '12951',
+          from: 'NDLS',
+          to: 'BPL',
+          route: rail,
+          arcM: arc,
+          speedMs: 12,
+          position: railLine.geoAt(arc),
+          fixTime: now,
+          delayMin: 0,
+        ),
+      ],
+      flights: [
+        FlightTrack(FlightState(
+          icao24: '800c1b',
+          callsign: 'AIC138',
+          position: destinationPoint(user, 40, 4.8),
+          altitudeM: 2400,
+          velocityMs: 0,
+          trackDeg: 250,
+          onGround: false,
+          fixTime: now,
+        ))
+          ..route = 'DEL → BOM',
+      ],
+      traffic: [
+        TrafficSegment(
+          id: 'ring-road',
+          points: city.routes.first,
+          currentSpeedKmh: 9,
+          freeFlowSpeedKmh: 45,
+          roadName: 'Ring Road',
+        ),
+      ],
+      weather: Weather(temperatureC: 28, humidityPct: 62, windKmh: 12, rainPct: 10, code: 2, observedAt: now),
+      events: [
+        NearbyEvent(
+          id: 'tm:1',
+          name: 'Music Fest 2025',
+          venue: 'Red Fort Grounds',
+          position: destinationPoint(user, 120, 1.1),
+          start: DateTime(now.year, now.month, now.day, 17),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        demoCityProvider.overrideWith((ref) async => city),
+        nearbyControllerProvider.overrideWith(() => _FixedNearby(state)),
+      ],
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: buildAppTheme(),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: RepaintBoundary(
+          key: shot,
+          child: Scaffold(
+            body: LayoutBuilder(builder: (context, box) {
+              final scale = (box.maxWidth / 512).clamp(.75, 1.2);
+              final pad = MediaQuery.paddingOf(context);
+              return Stack(children: [
+                Positioned.fill(
+                  child: NearbyScreen(
+                    bottomInset: 70 * scale + 12 + pad.bottom,
+                    onOpenCategory: (_) {},
+                    preview: const MapPreview(background: _FakeMap(), project: flatProjection),
+                  ),
+                ),
+                Positioned(
+                  left: 18 * scale,
+                  right: 18 * scale,
+                  bottom: 12 + pad.bottom,
+                  child: NeonBottomNav(index: 0, scale: scale, onTap: (_) {}),
+                ),
+              ]);
+            }),
+          ),
+        ),
+      ),
+    ));
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await GoogleFonts.pendingFonts();
+    });
+    for (var i = 0; i < 80; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    final dir = Platform.environment['SCREENSHOT_DIR'];
+    if (dir != null) {
+      final boundary = tester.renderObject<RenderRepaintBoundary>(find.byKey(shot));
+      await tester.runAsync(() async {
+        final ui.Image img = await boundary.toImage(pixelRatio: dpr);
+        final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+        Directory(dir).createSync(recursive: true);
+        File('$dir/nearby-live-412x915.png').writeAsBytesSync(bytes!.buffer.asUint8List());
+      });
+    }
+    expect(find.text('Train'), findsOneWidget);
+    expect(find.text('Flight'), findsOneWidget);
+    expect(find.text('Road Traffic'), findsOneWidget);
+    expect(find.text('Music Fest 2025'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+}
+
+/// A NearbyController that serves a fixed state (no location, no network).
+class _FixedNearby extends NearbyController {
+  _FixedNearby(this.fixed);
+  final NearbyState fixed;
+  @override
+  NearbyState build() => fixed;
 }

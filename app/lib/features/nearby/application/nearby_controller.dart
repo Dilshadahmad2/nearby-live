@@ -110,7 +110,10 @@ class NearbyState {
         return LiveStatus.demo;
       case NearbyMode.live:
         if (health.isEmpty) return LiveStatus.locating;
-        return health.values.any((h) => h.isStale(now)) ? LiveStatus.stale : LiveStatus.live;
+        // Amber only when most sources are stale: one slow source (e.g. a
+        // busy Overpass server) shouldn't make the whole app look offline.
+        final stale = health.values.where((h) => h.isStale(now)).length;
+        return stale * 2 > health.length ? LiveStatus.stale : LiveStatus.live;
     }
   }
 

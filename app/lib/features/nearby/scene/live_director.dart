@@ -12,23 +12,27 @@ import '../domain/presence.dart';
 import 'models_3d.dart';
 import 'scene.dart';
 
-/// Camera zoom that fits a [rangeKm] circle into ~44 % of the screen width at
-/// the user's latitude, capped at the plan's per-range zoom.
+/// Close-up camera zoom for a range. The view always shows the 3D city
+/// around the user (the design is a street-level scene, not a regional map);
+/// a wider range pulls back a little. Objects outside the view keep their
+/// card, and their pin and beam stay at the screen edge.
 double zoomForRange(double rangeKm, double latDeg, double screenWidth) {
-  const cap = {2: 14.5, 5: 13.2, 10: 12.2, 50: 9.9};
-  final mpp = rangeKm * 1000 / (0.44 * math.max(200, screenWidth));
-  // MapLibre: metres per logical pixel at zoom z = 78271.517 · cos(lat) / 2^z.
-  final z = math.log(78271.517 * math.cos(degToRad(latDeg)) / mpp) / math.ln2;
-  final c = cap[rangeKm.round()] ?? 14.5;
-  return z.clamp(3.0, c);
+  const zoom = {2: 16.2, 5: 15.6, 10: 15.0, 50: 14.0};
+  // Narrow phones get a touch less zoom so the same area fits.
+  final widthAdjust = math.log(math.max(300, screenWidth) / 412) / math.ln2;
+  return ((zoom[rangeKm.round()] ?? 15.6) + widthAdjust).clamp(12.0, 17.0);
 }
+
+/// HUD ring radius in design-stage px (512 wide), as in the prototype.
+const ringRadiusForRange = {2: 62.0, 5: 100.0, 10: 136.0, 50: 176.0};
 
 /// Camera that keeps the user in the lower-middle of a pitched view.
 CameraFrame cameraForUser(GeoPoint user, double rangeKm, Size viewport, {double bearing = -8, double pitch = 60}) {
   final zoom = zoomForRange(rangeKm, user.lat, viewport.width);
   final mpp = 78271.517 * math.cos(degToRad(user.lat)) / math.pow(2, zoom).toDouble();
   // Screen-vertical ground distance per pixel is ~1/cos(pitch) near the centre.
-  final shiftPx = viewport.height * .12;
+  // Puts the user at ~66 % of the height, leaving the sky and cards above.
+  final shiftPx = viewport.height * .16;
   final shiftM = shiftPx * mpp / math.cos(degToRad(pitch));
   return CameraFrame(
     center: destinationPoint(user, bearing, shiftM / 1000),
@@ -82,7 +86,7 @@ class LiveDirector implements SceneDirector {
     final user = st.user ?? const GeoPoint(28.6540, 77.2410);
     final range = st.rangeKm.toDouble();
     final camera = cameraForUser(user, range, viewport());
-    final iconMode = range >= 10;
+    final iconMode = camera.zoom < 13;
     final k = modelScaleForZoom(camera.zoom);
 
     var proj = _proj;
@@ -168,17 +172,31 @@ class LiveDirector implements SceneDirector {
       anim.presence.update(dt, inRange);
       if (!anim.presence.isVisible || pins >= _maxFlightPins) continue;
       pins++;
-      items.add(SceneItem(
-        kind: NearbyKind.flight,
-        id: f.state.icao24,
-        anchor: f.positionAt(now),
-        liftPx: (f.state.altitudeM / 1000 * 14).clamp(24.0, 110.0),
-        headingDeg: f.state.trackDeg,
-        vis: anim.presence.value,
-        shown: anim.presence.isShown,
-        distanceKm: r.distanceKm,
-        primary: shownFlights.isEmpty && anim.presence.isShown,
-      ));
+      final primary = shownFlights.isEmpty && anim.presence.isShown;
+      final pos = f.positionAt(now);
+      items.add(primary
+          // The nearest flight flies in the sky band above the city, placed by
+          // its real direction from the user (left/right of the camera).
+          ? SceneItem(
+              kind: NearbyKind.flight,
+              id: f.state.icao24,
+              stageAnchor: skyAnchor(bearingDeg(user, pos) - camera.bearing),
+              headingDeg: f.state.trackDeg - camera.bearing,
+              vis: anim.presence.value,
+              shown: true,
+              distanceKm: r.distanceKm,
+            )
+          : SceneItem(
+              kind: NearbyKind.flight,
+              id: f.state.icao24,
+              anchor: pos,
+              liftPx: (f.state.altitudeM / 1000 * 14).clamp(24.0, 110.0),
+              headingDeg: f.state.trackDeg,
+              vis: anim.presence.value,
+              shown: anim.presence.isShown,
+              distanceKm: r.distanceKm,
+              primary: false,
+            ));
       if (anim.presence.isShown && inRange) shownFlights.add(r);
     }
     if (shownFlights.isNotEmpty) {
@@ -321,6 +339,7 @@ class LiveDirector implements SceneDirector {
       weather: w,
       weatherVis: _weather.isShown ? 1.0 : 0.0,
       stageLightsOn: _event.isShown,
+      ringRadiusPx: ringRadiusForRange[st.rangeKm] ?? 100,
     );
   }
 
@@ -344,4 +363,13 @@ abstract final class Curves {
     final u = 1 - t.clamp(0.0, 1.0);
     return 1 - u * u * u;
   }
+}
+
+/// Where the nearest flight is drawn (design-stage px, 512 × 768): in the
+/// open sky at the top right, above the Flight card, as in the design. Its
+/// real direction from the user nudges it left or right; its rotation shows
+/// its real heading.
+Offset skyAnchor(double relativeBearingDeg) {
+  final a = degToRad(relativeBearingDeg);
+  return Offset(395 + math.sin(a) * 45, 108 - math.cos(a) * 8);
 }

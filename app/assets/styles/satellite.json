@@ -30,9 +30,10 @@
    "type": "raster",
    "source": "sat",
    "paint": {
-    "raster-saturation": 0.25,
+    "raster-saturation": 0.35,
     "raster-contrast": 0.12,
-    "raster-brightness-max": 0.95
+    "raster-brightness-min": 0.04,
+    "raster-brightness-max": 1.0
    }
   },
   {
@@ -155,7 +156,19 @@
      ]
     ],
     "line-blur": 6,
-    "line-opacity": 0.3
+    "line-opacity": [
+     "interpolate",
+     [
+      "linear"
+     ],
+     [
+      "zoom"
+     ],
+     12,
+     0.2,
+     15,
+     0.0
+    ]
    }
   },
   {
@@ -267,7 +280,19 @@
       0.8
      ]
     ],
-    "line-opacity": 0.75
+    "line-opacity": [
+     "interpolate",
+     [
+      "linear"
+     ],
+     [
+      "zoom"
+     ],
+     12,
+     0.5,
+     15,
+     0.0
+    ]
    }
   },
   {
@@ -275,7 +300,7 @@
    "type": "fill-extrusion",
    "source": "openmaptiles",
    "source-layer": "building",
-   "minzoom": 12,
+   "minzoom": 13,
    "paint": {
     "fill-extrusion-color": [
      "interpolate",
@@ -291,29 +316,23 @@
       8
      ],
      0,
-     "#1e5bff",
-     12,
-     "#2fb7ff",
-     24,
-     "#7c6bff",
-     40,
-     "#d35bff",
-     70,
-     "#ff5fa8",
-     110,
-     "#ffc23d"
+     "#e9dfcf",
+     15,
+     "#f1ece2",
+     30,
+     "#d9e4ee",
+     60,
+     "#b9d3ea",
+     120,
+     "#9cc4ee"
     ],
     "fill-extrusion-height": [
-     "*",
-     1.5,
+     "coalesce",
      [
-      "coalesce",
-      [
-       "get",
-       "render_height"
-      ],
-      8
-     ]
+      "get",
+      "render_height"
+     ],
+     8
     ],
     "fill-extrusion-base": [
      "coalesce",
@@ -323,7 +342,7 @@
      ],
      0
     ],
-    "fill-extrusion-opacity": 0.5,
+    "fill-extrusion-opacity": 0.92,
     "fill-extrusion-vertical-gradient": true
    }
   }

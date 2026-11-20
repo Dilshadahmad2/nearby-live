@@ -48,7 +48,7 @@ void main() {
   test('train status text shows the live delay', () {
     final t = snapToRail(parseNearbyTrains(json).single, const [], DateTime.utc(2026));
     expect(t.delayMin, 12);
-    expect(t.statusText, 'Moving · 12 min late');
+    expect(t.statusText, '12 min late');
   });
 
   test('parses flights from the live hub', () {

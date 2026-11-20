@@ -74,7 +74,7 @@ void main() {
     final t = snapToRail(trainEstimateFromLive(o), const [], now);
     expect(t.number, '12951');
     expect(t.from, 'BCT');
-    expect(t.statusText, 'Moving · 25 min late');
+    expect(t.statusText, '25 min late');
   });
 
   test('weather and traffic objects map to app models', () {

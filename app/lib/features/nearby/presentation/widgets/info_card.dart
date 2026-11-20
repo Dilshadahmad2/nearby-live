@@ -159,7 +159,11 @@ class _StatusChip extends StatelessWidget {
             decoration: const BoxDecoration(color: AppColors.green, shape: BoxShape.circle),
           ),
           SizedBox(width: 5 * scale),
-          Text(text, style: outfit(10 * scale, weight: FontWeight.w600)),
+          // Live statuses ("Moving · 12 min late") can be longer than the chip.
+          Flexible(
+            child: Text(text,
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: outfit(10 * scale, weight: FontWeight.w600)),
+          ),
         ]),
       );
 }
@@ -191,7 +195,7 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: EdgeInsets.symmetric(horizontal: 7 * scale, vertical: 2 * scale),
         decoration: BoxDecoration(color: const Color(0x4D000000), borderRadius: BorderRadius.circular(7 * scale)),
-        child: Text(text, style: outfit(9.5 * scale, weight: FontWeight.w600)),
+        child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: outfit(9.5 * scale, weight: FontWeight.w600)),
       );
 }
 

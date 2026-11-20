@@ -196,6 +196,17 @@ class _NearbyScreenState extends ConsumerState<NearbyScreen> with SingleTickerPr
 
   Offset get _weatherPos => Offset(286 * _sx, 352 * _sy);
 
+  /// The map area pins may use: below the sky band, above the bottom nav.
+  Rect get _visibleRect =>
+      Rect.fromLTRB(18, _size.height * .27, _size.width - 18, _size.height - widget.bottomInset - 30);
+
+  /// Clamps a projected point into [_visibleRect] (keeps its direction).
+  Offset _onScreen(Offset p) {
+    final r = _visibleRect;
+    if (r.isEmpty || r.contains(p)) return p;
+    return Offset(p.dx.clamp(r.left, r.right), p.dy.clamp(r.top, r.bottom));
+  }
+
   void _updateHud(double dt) {
     final s = _snap;
     if (s == null) {
@@ -209,7 +220,7 @@ class _NearbyScreenState extends ConsumerState<NearbyScreen> with SingleTickerPr
     final event = s.primaryOf(NearbyKind.event);
     Offset? at(SceneItem? i, double dy) {
       final p = i == null ? null : _smooth[i.id];
-      return p?.translate(0, dy);
+      return p == null ? null : _onScreen(p.translate(0, dy));
     }
 
     final plane = _planeScreen(flight);
@@ -466,7 +477,8 @@ class _OverlayLayer extends StatelessWidget {
           child: MapPin(colour: AppColors.flight, icon: Icons.flight_rounded, shown: f.shown, size: 30 * s),
         ));
         children.add(Positioned(
-          left: plane.dx - 84 * s,
+          // Left of the Flight card (card starts at x = 358 in the design stage).
+          left: math.min(plane.dx - 84 * s, 358 * s - 66 * s),
           top: plane.dy + 26 * s,
           child: AnimatedOpacity(
             opacity: f.shown ? 1 : 0,
@@ -477,8 +489,12 @@ class _OverlayLayer extends StatelessWidget {
       }
 
       for (final item in snap.items) {
-        final p = st._smooth[item.id];
-        if (p == null) continue;
+        final raw = st._smooth[item.id];
+        if (raw == null) continue;
+        // Objects outside the close-up view keep their pin at the screen edge,
+        // in their real direction (buses/metro are only drawn when visible).
+        if (item.kind == NearbyKind.transit && !st._visibleRect.contains(raw)) continue;
+        final p = st._onScreen(raw);
         switch (item.kind) {
           case NearbyKind.train:
             children.add(Positioned(
@@ -527,7 +543,7 @@ class _OverlayLayer extends StatelessWidget {
     if (you != null) {
       children.add(Positioned(
         left: you.dx - 15 * s,
-        top: you.dy - 150 * s,
+        top: you.dy - 205 * s,
         child: MapPin(colour: AppColors.blue, icon: Icons.circle, shown: true, size: 30 * s),
       ));
       children.add(Positioned(left: you.dx - 28 * s, top: you.dy + 16 * s, child: YouLabel(scale: s)));

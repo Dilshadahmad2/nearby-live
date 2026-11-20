@@ -50,13 +50,12 @@ class Train {
   /// Live delay in minutes when a live status is known (null = no live data).
   final int? delayMin;
 
-  /// "Moving · 12 min late", "Moving · On time", or just "Moving".
+  /// "12 min late" / "On time" when a live delay is known (moving is
+  /// implied), otherwise the status ("Moving", "At station").
   String get statusText {
-    final base = trainStatusLabel(status);
     final d = delayMin;
-    if (d == null) return base;
-    if (d <= 0) return '$base · On time';
-    return '$base · $d min late';
+    if (d == null || status != TrainStatus.moving) return trainStatusLabel(status);
+    return d <= 0 ? 'On time' : '$d min late';
   }
 
   String get subtitle => '$name ($from → $to)';
